@@ -124,3 +124,19 @@ However, we recommend to follow the Gitlab guidelines for starters,
 that includes creating a Gitlab account, forking the ns-3-dev project
 under the new account's name, and then cloning the forked repository.
 You can find more information in the [manual](https://www.nsnam.org/docs/manual/html/working-with-git.html).
+## 编译步骤
+
+### 1. 编译 SDN 底层库（ofsoftswitch13）
+
+```bash
+# 进入 ofsoftswitch13 源码目录
+cd /home/your-home/ns-allinone-3.34/ns-3.34/contrib/ofswitch13/lib/ofsoftswitch13
+
+# 生成 configure 脚本
+./boot.sh
+
+# 配置并开启 ns3-lib 支持
+./configure --enable-ns3-lib
+
+# 并行编译（8 线程）
+make -j8
