@@ -44,6 +44,215 @@
 #include "ns3/ipv4-list-routing-helper.h"
 using namespace ns3;
 
+ void testt(NetDeviceContainer &switchPorts)
+    {
+            //----------------这里是测试的内容------------------------------------------
+        for (uint32_t i = 0; i < switchPorts.GetN(); i++)
+        {
+            Ptr<NetDevice> switchPortDevice = switchPorts.Get(i);
+        
+            // 获取连接到交换机端口的通道
+            Ptr<Channel> channel = switchPortDevice->GetChannel();
+        
+            // 对于CSMA通道，获取另一端的设备（主机）
+            Ptr<CsmaChannel> csmaChannel = DynamicCast<CsmaChannel>(channel);
+            if (csmaChannel)
+            {
+                // 遍历通道上的所有设备，找到不是交换机端口的那个（即主机设备）
+                for (uint32_t j = 0; j < csmaChannel->GetNDevices(); j++)
+                {
+                    Ptr<NetDevice> device = csmaChannel->GetDevice(j);
+                    if (device != switchPortDevice)
+                    {
+                        std::cout << "Switch port " << i << " is connected to host device: "
+                                  << device->GetAddress() << std::endl;
+
+                        //--------------测试二-----------------------------------
+                        
+                        // 1. 获取设备所属的节点
+                        Ptr<Node> hostNode = device->GetNode();
+                        if (!hostNode)
+                        {
+                            std::cout << "Device does not belong to any node!" << std::endl;
+                            continue;
+                        }
+
+                        // 2. 获取节点上的IPv4协议栈
+                        Ptr<Ipv4> ipv4 = hostNode->GetObject<Ipv4>();
+                        if (!ipv4)
+                        {
+                            std::cout << "Node does not have an IPv4 stack!" << std::endl;
+                            continue;
+                        }
+
+                        // 3. 获取路由协议（通常是Ipv4ListRouting，支持多路由协议）
+                        Ptr<Ipv4RoutingProtocol> routingProtocol = ipv4->GetRoutingProtocol();
+                        Ptr<Ipv4ListRouting> listRouting = DynamicCast<Ipv4ListRouting>(routingProtocol);
+                        if (!listRouting)
+                        {
+                            std::cout << "Node does not use Ipv4ListRouting!" << std::endl;
+                            continue;
+                        }
+                        std::cout<<"have routing"<<std::endl;
+                        // 4. 获取当前路由协议及其优先级列表
+                        std::cout << "===========================Routing protocols and their priorities on host node:=======================" << std::endl;
+                        for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
+                        {
+                            int16_t priority = 0;
+                            Ptr<Ipv4RoutingProtocol> proto = listRouting->GetRoutingProtocol(k, priority);
+                            std::cout << "  Protocol: " << proto->GetInstanceTypeId().GetName()
+                                      << ", Priority: " << priority << std::endl;
+                        }
+
+                        
+                        // 5. 示例：修改第一个路由协议的优先级（假设存在）
+                        if (listRouting->GetNRoutingProtocols() > 0)
+                        {
+
+        // // 创建列表路由助手
+        // Ipv4ListRoutingHelper nlistRouting;
+
+        // // 添加路由协议并设置优先级（数值越da优先级越高）
+        // nlistRouting.Add(aodv, 10);  // AODV优先级高
+        // nlistRouting.Add(olsr, 0);  // OLSR优先级低
+
+        // // 将列表路由设置为栈的路由助手
+        // stack.SetRoutingHelper(nlistRouting);
+        // stack.Install(hosts);
+                        
+                        //     // Ptr<Ipv4RoutingProtocol> newProtocol;
+                        //     // newProtocol = CreateObject<olsr::RoutingProtocol>();
+                        //     // ipv4->SetRoutingProtocol(newProtocol);
+
+                        //     // 创建新的 list
+                        //     // 新建一个 list
+                        //       Ptr<Ipv4ListRouting> newList = CreateObject<Ipv4ListRouting> ();
+
+                        //       // 新建 OLSR 和 AODV 对象（不要复用旧的）
+                        //       Ptr<aodv::RoutingProtocol> aodv = CreateObject<aodv::RoutingProtocol> ();
+                        //       Ptr<olsr::RoutingProtocol> olsr = CreateObject<olsr::RoutingProtocol> ();
+
+                        //       // 这里把 OLSR 提升为高优先级 (100)，AODV 降为低优先级 (10)
+                        //       newList->AddRoutingProtocol (olsr, 100);
+                        //       newList->AddRoutingProtocol (aodv, 10);
+
+                        //       // 替换节点上的路由协议栈
+                        //       ipv4->SetRoutingProtocol (newList);
+                        //     
+                        // }
+                            // bu wen ding xiu gai 
+                            listRouting->SetRoutingProtocolPriorityByType(olsr::RoutingProtocol::GetTypeId(),0);
+                            listRouting->SetRoutingProtocolPriorityByType(aodv::RoutingProtocol::GetTypeId(),100);
+                            //listRouting->SetRoutingProtocolPriority(1,100);
+                            std::cout<<"--------------------------------"<<std::endl;
+                            std::cout<<"---------xiu gai chen gong-----------"<<std::endl;
+                            std::cout<<"--------------------------------"<<std::endl;
+                        }
+
+                          // 6. 打印routing table
+                        // std::cout << "=====================Routing protocols and their priorities on host node:===========================================" << std::endl;
+                        //for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
+                        // {
+                        //     // 用 std::cout 创建一个 OutputStreamWrapper
+                        //     Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(&std::cout);
+
+                        //     // 调用打印函数
+                        //     listRouting->PrintRoutingTable(stream, Time::S);
+                        // }
+                        //  std::cout << "==================================================================================================================" << std::endl;
+                        for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
+                        {
+                            int16_t priority = 0;
+                            Ptr<Ipv4RoutingProtocol> proto = listRouting->GetRoutingProtocol(k, priority);
+                            std::cout << "  Protocol: " << proto->GetInstanceTypeId().GetName()
+                                      << ", Priority: " << priority << std::endl;
+                        }
+                        std::cout<<"=============================================================================================="<<std::endl;
+                        //--------------------------------------------------------------------
+                        break;
+                    }
+                }
+            }
+        }
+    }
+void print_routingtable(NetDeviceContainer &switchPorts)
+{
+     //----------------这里是测试的内容------------------------------------------
+        for (uint32_t i = 0; i < switchPorts.GetN(); i++)
+        {
+            Ptr<NetDevice> switchPortDevice = switchPorts.Get(i);
+        
+            // 获取连接到交换机端口的通道
+            Ptr<Channel> channel = switchPortDevice->GetChannel();
+        
+            // 对于CSMA通道，获取另一端的设备（主机）
+            Ptr<CsmaChannel> csmaChannel = DynamicCast<CsmaChannel>(channel);
+            if (csmaChannel)
+            {
+                // 遍历通道上的所有设备，找到不是交换机端口的那个（即主机设备）
+                for (uint32_t j = 0; j < csmaChannel->GetNDevices(); j++)
+                {
+                    Ptr<NetDevice> device = csmaChannel->GetDevice(j);
+                    if (device != switchPortDevice)
+                    {
+                        std::cout << "Switch port " << i << " is connected to host device: "
+                                  << device->GetAddress() << std::endl;
+
+                        //--------------测试二-----------------------------------
+                        
+                        // 1. 获取设备所属的节点
+                        Ptr<Node> hostNode = device->GetNode();
+                        if (!hostNode)
+                        {
+                            std::cout << "Device does not belong to any node!" << std::endl;
+                            continue;
+                        }
+
+                        // 2. 获取节点上的IPv4协议栈
+                        Ptr<Ipv4> ipv4 = hostNode->GetObject<Ipv4>();
+                        if (!ipv4)
+                        {
+                            std::cout << "Node does not have an IPv4 stack!" << std::endl;
+                            continue;
+                        }
+
+                        // 3. 获取路由协议（通常是Ipv4ListRouting，支持多路由协议）
+                        Ptr<Ipv4RoutingProtocol> routingProtocol = ipv4->GetRoutingProtocol();
+                        Ptr<Ipv4ListRouting> listRouting = DynamicCast<Ipv4ListRouting>(routingProtocol);
+                        if (!listRouting)
+                        {
+                            std::cout << "Node does not use Ipv4ListRouting!" << std::endl;
+                            continue;
+                        }
+                        std::cout<<"have routing";
+                        // 4. 获取当前路由协议及其优先级列表
+                        std::cout << "Routing protocols and their priorities on host node:" << std::endl;
+                        for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
+                        {
+                            int16_t priority = 0;
+                            Ptr<Ipv4RoutingProtocol> proto = listRouting->GetRoutingProtocol(k, priority);
+                            std::cout << "  Protocol: " << proto->GetInstanceTypeId().GetName()
+                                      << ", Priority: " << priority << std::endl;
+                        }
+                    
+                         // 6. 打印routing table
+                        std::cout << "=====================Routing protocols and their priorities on host node:=========================================" << std::endl;
+                        //for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
+                        {
+                            // 用 std::cout 创建一个 OutputStreamWrapper
+                            Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(&std::cout);
+
+                            // 调用打印函数
+                            listRouting->PrintRoutingTable(stream, Time::S);
+                        }
+                         std::cout << "=================================================================================================================="<< std::endl;
+                        //--------------------------------------------------------------------
+                        break;
+                    }
+                }
+            }
+        }
+}
 int
 main(int argc, char* argv[])
 {
@@ -164,127 +373,13 @@ main(int argc, char* argv[])
         csmaHelper.EnablePcap("switch", switchPorts, true);
         csmaHelper.EnablePcap("host", hostDevices);
     }
-    //----------------这里是测试的内容------------------------------------------
-    for (uint32_t i = 0; i < switchPorts.GetN(); i++)
-    {
-        Ptr<NetDevice> switchPortDevice = switchPorts.Get(i);
     
-        // 获取连接到交换机端口的通道
-        Ptr<Channel> channel = switchPortDevice->GetChannel();
-    
-        // 对于CSMA通道，获取另一端的设备（主机）
-        Ptr<CsmaChannel> csmaChannel = DynamicCast<CsmaChannel>(channel);
-        if (csmaChannel)
-        {
-            // 遍历通道上的所有设备，找到不是交换机端口的那个（即主机设备）
-            for (uint32_t j = 0; j < csmaChannel->GetNDevices(); j++)
-            {
-                Ptr<NetDevice> device = csmaChannel->GetDevice(j);
-                if (device != switchPortDevice)
-                {
-                    std::cout << "Switch port " << i << " is connected to host device: "
-                              << device->GetAddress() << std::endl;
-
-                    //--------------测试二-----------------------------------
-                    
-                    // 1. 获取设备所属的节点
-                    Ptr<Node> hostNode = device->GetNode();
-                    if (!hostNode)
-                    {
-                        std::cout << "Device does not belong to any node!" << std::endl;
-                        continue;
-                    }
-
-                    // 2. 获取节点上的IPv4协议栈
-                    Ptr<Ipv4> ipv4 = hostNode->GetObject<Ipv4>();
-                    if (!ipv4)
-                    {
-                        std::cout << "Node does not have an IPv4 stack!" << std::endl;
-                        continue;
-                    }
-
-                    // 3. 获取路由协议（通常是Ipv4ListRouting，支持多路由协议）
-                    Ptr<Ipv4RoutingProtocol> routingProtocol = ipv4->GetRoutingProtocol();
-                    Ptr<Ipv4ListRouting> listRouting = DynamicCast<Ipv4ListRouting>(routingProtocol);
-                    if (!listRouting)
-                    {
-                        std::cout << "Node does not use Ipv4ListRouting!" << std::endl;
-                        continue;
-                    }
-                    std::cout<<"have routing";
-                    // 4. 获取当前路由协议及其优先级列表
-                    std::cout << "Routing protocols and their priorities on host node:" << std::endl;
-                    for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
-                    {
-                        int16_t priority = 0;
-                        Ptr<Ipv4RoutingProtocol> proto = listRouting->GetRoutingProtocol(k, priority);
-                        std::cout << "  Protocol: " << proto->GetInstanceTypeId().GetName()
-                                  << ", Priority: " << priority << std::endl;
-                    }
-
-                    
-                    // 5. 示例：修改第一个路由协议的优先级（假设存在）
-                    if (listRouting->GetNRoutingProtocols() > 0)
-                    {
-
-    // // 创建列表路由助手
-    // Ipv4ListRoutingHelper nlistRouting;
-
-    // // 添加路由协议并设置优先级（数值越da优先级越高）
-    // nlistRouting.Add(aodv, 10);  // AODV优先级高
-    // nlistRouting.Add(olsr, 0);  // OLSR优先级低
-
-    // // 将列表路由设置为栈的路由助手
-    // stack.SetRoutingHelper(nlistRouting);
-    // stack.Install(hosts);
-                    
-                    //     // Ptr<Ipv4RoutingProtocol> newProtocol;
-                    //     // newProtocol = CreateObject<olsr::RoutingProtocol>();
-                    //     // ipv4->SetRoutingProtocol(newProtocol);
-
-                    //     // 创建新的 list
-                    //     // 新建一个 list
-                    //       Ptr<Ipv4ListRouting> newList = CreateObject<Ipv4ListRouting> ();
-
-                    //       // 新建 OLSR 和 AODV 对象（不要复用旧的）
-                    //       Ptr<aodv::RoutingProtocol> aodv = CreateObject<aodv::RoutingProtocol> ();
-                    //       Ptr<olsr::RoutingProtocol> olsr = CreateObject<olsr::RoutingProtocol> ();
-
-                    //       // 这里把 OLSR 提升为高优先级 (100)，AODV 降为低优先级 (10)
-                    //       newList->AddRoutingProtocol (olsr, 100);
-                    //       newList->AddRoutingProtocol (aodv, 10);
-
-                    //       // 替换节点上的路由协议栈
-                    //       ipv4->SetRoutingProtocol (newList);
-                    //     
-                    // }
-                        // bu wen ding xiu gai 
-                        listRouting->SetRoutingProtocolPriorityByType(olsr::RoutingProtocol::GetTypeId(),0);
-                        listRouting->SetRoutingProtocolPriorityByType(aodv::RoutingProtocol::GetTypeId(),100);
-                        //listRouting->SetRoutingProtocolPriority(1,100);
-                        std::cout<<"--------------------------------"<<std::endl;
-                        std::cout<<"---------xiu gai chen gong-----------"<<std::endl;
-                        std::cout<<"--------------------------------"<<std::endl;
-                    }
-                     // 4. 获取当前路由协议及其优先级列表
-                    std::cout << "Routing protocols and their priorities on host node:" << std::endl;
-                    for (uint32_t k = 0; k < listRouting->GetNRoutingProtocols(); k++)
-                    {
-                        // 用 std::cout 创建一个 OutputStreamWrapper
-                        Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(&std::cout);
-
-                        // 调用打印函数
-                        listRouting->PrintRoutingTable(stream, Time::S);
-                    }
-                    //--------------------------------------------------------------------
-                    break;
-                }
-            }
-        }
-    }
-    //------------------------------------------------------------------------------
-    // Run the simulation
-    //Simulator::Stop(Seconds(simTime));
-   // Simulator::Run();
-   // Simulator::Destroy();
+    //-------------------simulate-----------------------------------------------------------
+    //Run the simulation
+    Simulator::Schedule(Seconds(3.0), &print_routingtable, std::ref(switchPorts));
+    Simulator::Schedule(Seconds(6.0), &testt, std::ref(switchPorts));
+    Simulator::Schedule(Seconds(9.0), &print_routingtable, std::ref(switchPorts));
+    Simulator::Stop(Seconds(simTime));
+    Simulator::Run();
+    Simulator::Destroy();
 }
