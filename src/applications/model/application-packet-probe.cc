@@ -94,6 +94,7 @@ ApplicationPacketProbe::ConnectByObject (std::string traceSource, Ptr<Object> ob
   NS_LOG_DEBUG ("Name of probe (if any) in names database: " << Names::FindPath (obj));
   bool connected = obj->TraceConnectWithoutContext (traceSource, MakeCallback (&ns3::ApplicationPacketProbe::TraceSink, this));
   return connected;
+  
 }
 
 void

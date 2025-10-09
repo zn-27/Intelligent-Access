@@ -25,33 +25,36 @@
 
 #include "regular-wifi-mac.h"
 
-namespace ns3 {
-
-/**
- * \ingroup wifi
- *
- * \brief Wifi MAC high model for an ad-hoc Wifi MAC
- */
-class AdhocWifiMac : public RegularWifiMac
+namespace ns3
 {
-public:
+
   /**
-   * \brief Get the type ID.
-   * \return the object TypeId
+   * \ingroup wifi
+   *
+   * \brief Wifi MAC high model for an ad-hoc Wifi MAC
    */
-  static TypeId GetTypeId (void);
+  class AdhocWifiMac : public RegularWifiMac
+  {
+  public:
+    /**
+     * \brief Get the type ID.
+     * \return the object TypeId
+     */
+    static TypeId GetTypeId(void);
 
-  AdhocWifiMac ();
-  virtual ~AdhocWifiMac ();
+    AdhocWifiMac();
+    virtual ~AdhocWifiMac();
 
-  void SetAddress (Mac48Address address) override;
-  void SetLinkUpCallback (Callback<void> linkUp) override;
-  void Enqueue (Ptr<Packet> packet, Mac48Address to) override;
+    void SetAddress(Mac48Address address) override;
+    void SetLinkUpCallback(Callback<void> linkUp) override;
+    void Enqueue(Ptr<Packet> packet, Mac48Address to) override;
+    // gai dong
+    bool SupportsSendFrom(void) const override;
+    // gai dong
+  private:
+    void Receive(Ptr<WifiMacQueueItem> mpdu) override;
+  };
 
-private:
-  void Receive (Ptr<WifiMacQueueItem> mpdu) override;
-};
-
-} //namespace ns3
+} // namespace ns3
 
 #endif /* ADHOC_WIFI_MAC_H */
