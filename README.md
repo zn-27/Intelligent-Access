@@ -1,133 +1,83 @@
+# 网络模拟器（Network Simulator）3 版本
 
-The Network Simulator, Version 3
-================================
+## 目录
+1. [项目概述](#项目概述)
+2. [编译 ns-3](#编译-ns-3)
+3. [运行 ns-3](#运行-ns-3)
+4. [获取 ns-3 文档](#获取-ns-3-文档)
+5. [使用 ns-3 开发版本](#使用-ns-3-开发版本)
+6. [使用 ns-3 该仓库版本](#使用-ns-3-该仓库版本)
 
-## Table of Contents:
+注：有关 ns-3 的更多详细信息，可访问官方网站：https://www.nsnam.org
 
-1) [An overview](#an-open-source-project)
-2) [Building ns-3](#building-ns-3)
-3) [Running ns-3](#running-ns-3)
-4) [Getting access to the ns-3 documentation](#getting-access-to-the-ns-3-documentation)
-5) [Working with the development version of ns-3](#working-with-the-development-version-of-ns-3)
 
-Note:  Much more substantial information about ns-3 can be found at
-https://www.nsnam.org
+## 项目概述
+ns-3 是一个免费的开源项目，旨在构建一款面向仿真研究与教学的离散事件网络模拟器。
 
-## An Open Source project
+这是一个协作型项目。对于我们尚未实现的模型模块，我们期待社区通过开放协作的方式补充完善。
 
-ns-3 is a free open source project aiming to build a discrete-event
-network simulator targeted for simulation research and education.
-This is a collaborative project; we hope that
-the missing pieces of the models we have not yet implemented
-will be contributed by the community in an open collaboration
-process.
+参与 ns-3 项目贡献的方式因人而异，取决于参与者投入的时间、以及计划开发的模型类型。目前项目推荐遵循的贡献流程详见：https://www.nsnam.org/developers/contributing-code/
 
-The process of contributing to the ns-3 project varies with
-the people involved, the amount of time they can invest
-and the type of model they want to work on, but the current
-process that the project tries to follow is described here:
-https://www.nsnam.org/developers/contributing-code/
+本 README 文件中的部分内容，摘选自一份更完整的教程。该教程的最新版本可通过以下链接查看：https://www.nsnam.org/documentation/latest/
 
-This README excerpts some details from a more extensive
-tutorial that is maintained at:
-https://www.nsnam.org/documentation/latest/
 
-## Building ns-3
+## 编译 ns-3
+ns-3 提供的框架代码与默认模型，会被编译为一组库文件。用户编写的仿真程序，需作为调用这些 ns-3 库文件的简单程序来开发。
 
-The code for the framework and the default models provided
-by ns-3 is built as a set of libraries. User simulations
-are expected to be written as simple programs that make
-use of these ns-3 libraries.
+若要编译默认库文件及本安装包中包含的示例程序，需使用工具 `waf`。关于 `waf` 的详细使用说明，可参考文件 doc/build.txt。
 
-To build the set of default libraries and the example
-programs included in this package, you need to use the
-tool 'waf'. Detailed information on how to use waf is
-included in the file doc/build.txt
-
-However, the real quick and dirty way to get started is to
-type the command
+若需快速上手，可在包含本 README 文件的目录下，依次执行以下命令：
 ```shell
 ./waf configure --enable-examples
 ```
-
-followed by
-
+随后执行：
 ```shell
 ./waf
 ```
+编译生成的文件会被复制到 build/ 目录中。
 
-in the directory which contains this README file. The files
-built will be copied in the build/ directory.
+当前代码库支持的操作系统平台，已在 [发布说明](RELEASE_NOTES) 文件中列出。
 
-The current codebase is expected to build and run on the
-set of platforms listed in the [release notes](RELEASE_NOTES)
-file.
+其他操作系统平台的兼容性未做保证。若您能提供补丁以提升代码在其他平台的可移植性，我们将非常欢迎。
 
-Other platforms may or may not work: we welcome patches to
-improve the portability of the code to these other platforms.
 
-## Running ns-3
-
-On recent Linux systems, once you have built ns-3 (with examples
-enabled), it should be easy to run the sample programs with the
-following command, such as:
-
+## 运行 ns-3
+在最新的 Linux 系统中，若已完成 ns-3 编译（需启用示例程序），可通过以下命令轻松运行示例程序。例如：
 ```shell
 ./waf --run simple-global-routing
 ```
 
-That program should generate a `simple-global-routing.tr` text
-trace file and a set of `simple-global-routing-xx-xx.pcap` binary
-pcap trace files, which can be read by `tcpdump -tt -r filename.pcap`
-The program source can be found in the examples/routing directory.
+该程序会生成一个 `simple-global-routing.tr` 文本跟踪文件，以及一组 `simple-global-routing-xx-xx.pcap` 二进制 pcap 跟踪文件。
 
-## Getting access to the ns-3 documentation
+这些 pcap 文件可通过 `tcpdump -tt -r filename.pcap` 命令读取。该程序的源代码位于 examples/routing 目录下。
 
-Once you have verified that your build of ns-3 works by running
-the simple-point-to-point example as outlined in 3) above, it is
-quite likely that you will want to get started on reading
-some ns-3 documentation.
 
-All of that documentation should always be available from
-the ns-3 website: https://www.nsnam.org/documentation/.
+## 获取 ns-3 文档
+若您已通过运行 3）中提到的 simple-point-to-point 示例，确认 ns-3 编译成功，接下来可开始阅读 ns-3 相关文档。
 
-This documentation includes:
+所有文档均可通过 ns-3 官方网站获取：https://www.nsnam.org/documentation/，具体包括：
+- 教程（tutorial）
+- 参考手册（reference manual）
+- ns-3 模型库中的各类模型（models in the ns-3 model library）
+- 用户贡献技巧的维基页面：https://www.nsnam.org/wiki/
+- 使用 doxygen 生成的 API 文档（这是一份参考手册，不太适合作为入门文本）：https://www.nsnam.org/doxygen/index.html
 
-  - a tutorial
 
-  - a reference manual
+## 使用 ns-3 开发版本
+若需下载并使用 ns-3 开发版本，需借助工具 `git`。
 
-  - models in the ns-3 model library
+手册中包含一份简易的 `git` 使用指南，但如果您不熟悉 `git`，建议先阅读互联网上的 `git` 教程。
 
-  - a wiki for user-contributed tips: https://www.nsnam.org/wiki/
-
-  - API documentation generated using doxygen: this is
-    a reference manual, most likely not very well suited
-    as introductory text:
-    https://www.nsnam.org/doxygen/index.html
-
-## Working with the development version of ns-3
-
-If you want to download and use the development version of ns-3, you
-need to use the tool `git`. A quick and dirty cheat sheet is included
-in the manual, but reading through the git
-tutorials found in the Internet is usually a good idea if you are not
-familiar with it.
-
-If you have successfully installed git, you can get
-a copy of the development version with the following command:
+若已成功安装 `git`，可通过以下命令获取开发版本的代码副本：
 ```shell
 git clone https://gitlab.com/nsnam/ns-3-dev.git
 ```
 
-However, we recommend to follow the Gitlab guidelines for starters,
-that includes creating a Gitlab account, forking the ns-3-dev project
-under the new account's name, and then cloning the forked repository.
-You can find more information in the [manual](https://www.nsnam.org/docs/manual/html/working-with-git.html).
+不过，我们建议初学者遵循 Gitlab 上的指南操作，具体包括：创建 Gitlab 账号、在新账号下复刻（fork）ns-3-dev 项目、然后克隆复刻后的仓库。更多详细信息可参考 [官方手册](https://www.nsnam.org/docs/manual/html/working-with-git.html)。
+
+## 使用 ns-3 该仓库版本
 ## 编译步骤
-
 ### 1. 编译 SDN 底层库（ofsoftswitch13）：
-
 ```bash
 # 进入 ofsoftswitch13 源码目录
 cd /home/your-home/ns-allinone-3.34/ns-3.34/contrib/ofswitch13/lib/ofsoftswitch13
@@ -141,7 +91,8 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34/contrib/ofswitch13/lib/ofsoftswitch1
 # 并行编译（8 线程）
 make -j8
 ```
-### 2.编译整个项目：
+
+### 2. 编译整个项目：
 ```bash
 # 回到 NS-3 根目录
 cd /home/your-home/ns-allinone-3.34/ns-3.34
@@ -152,8 +103,5 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34
 # 开始编译
 ./waf
 ```
-### 3.执行完上述步骤后，可通过以下命令确认 OpenFlow 1.3 模块是否已启用：
-```bash
-./waf --check-profile
-```
-在输出中查找 ofswitch13 相关条目，若显示为 enabled 即表示编译成功。
+
+### 3. 验证 OpenFlow 1.3 模块是否启用：
