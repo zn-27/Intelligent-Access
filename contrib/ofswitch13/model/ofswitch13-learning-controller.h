@@ -1,98 +1,113 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
-/*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation;
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
- * Author: Luciano Chaves <luciano@lrc.ic.unicamp.br>
- */
-
 #ifndef OFSWITCH13_LEARNING_CONTROLLER_H
 #define OFSWITCH13_LEARNING_CONTROLLER_H
 
 #include "ofswitch13-controller.h"
+#include "ns3/ipv4-address.h"
 
 namespace ns3
 {
+  // 主机信息结构体：IP、MAC、端口（域内主机）
+  struct HostInfo
+  {
+    Ipv4Address ip;   // 主机IP地址
+    Mac48Address mac; // 主机MAC地址
+    uint32_t port;    // 连接的交换机端口号
+  };
 
-  /**
-   * \ingroup ofswitch13
-   * \brief An Learning OpenFlow 1.3 controller (works as L2 switch)
-   */
+  // 定义交换机互联端口映射结构体（仅包含目标交换机和对应端口）
+  struct SwitchPortMapping
+  {
+    uint64_t destSwitchDpid; // 目标交换机DPID
+    uint32_t outputPort;     // 本交换机的输出端口（连接到目标交换机）
+  };
+
+  // 子网-交换机DPID映射结构体
+  struct SubnetToSwitchMapping
+  {
+    std::string subnet;        // IP子网（如"10.1.1.0/24"）
+    uint64_t targetSwitchDpid; // 该子网所属的交换机DPID
+  };
+
   class OFSwitch13LearningController : public OFSwitch13Controller
   {
   public:
-    OFSwitch13LearningController();          //!< Default constructor
-    virtual ~OFSwitch13LearningController(); //!< Dummy destructor.
+    OFSwitch13LearningController();
+    virtual ~OFSwitch13LearningController();
 
-    void SetPriorityToAll();
-    /**
-     * Register this type.
-     * \return The object TypeId.
-     */
     static TypeId GetTypeId(void);
-    //
     void SetRoutingPriority(void);
-    /** Destructor implementation */
     virtual void DoDispose();
 
-    /**
-     * Handle packet-in messages sent from switch to this controller. Look for L2
-     * switching information, update the structures and send a packet-out back.
-     *
-     * \param msg The packet-in message.
-     * \param swtch The switch information.
-     * \param xid Transaction id.
-     * \return 0 if everything's ok, otherwise an error number.
-     */
+    // 根据交换机DPID获取其下所有主机信息
+    std::vector<HostInfo> GetHostsBySwitch(uint64_t dpId)
+    {
+      auto it = m_switchHosts.find(dpId);
+      return (it != m_switchHosts.end()) ? it->second : std::vector<HostInfo>();
+    }
+
+    // 添加ARP表项（供仿真脚本调用）
+    void AddArpEntry(Ipv4Address ip, Mac48Address mac)
+    {
+      m_arpTable[ip] = mac;
+    }
+
     ofl_err HandlePacketIn(
         struct ofl_msg_packet_in *msg, Ptr<const RemoteSwitch> swtch,
         uint32_t xid);
 
-    /**
-     * Handle flow removed messages sent from switch to this controller. Look for
-     * L2 switching information and removes associated entry.
-     *
-     * \param msg The flow removed message.
-     * \param swtch The switch information.
-     * \param xid Transaction id.
-     * \return 0 if everything's ok, otherwise an error number.
-     */
     ofl_err HandleFlowRemoved(
         struct ofl_msg_flow_removed *msg, Ptr<const RemoteSwitch> swtch,
         uint32_t xid);
+    // //------------------zi ding yi ---------------------------
+    // /**
+    // * Handle host information message
+    // */
+    // ofl_err HandleHostInfo(struct ofl_msg_host_info *msg,
+    //                              Ptr<const RemoteSwitch> swtch,
+    //                              uint32_t xid);
+    // //------------------zi ding yi ---------------------------
+
+    //------------------zi ding yi ---------------------------
+    /**
+     * Handle host information message（手动初始化主机信息，不依赖外部结构体）
+     */
+    ofl_err HandleHostInfo(void *msg, Ptr<const RemoteSwitch> swtch,
+                           uint32_t xid);
+    //------------------zi ding yi ---------------------------
 
   protected:
-    // Inherited from OFSwitch13Controller
     void HandshakeSuccessful(Ptr<const RemoteSwitch> swtch);
 
   private:
-    /** Map saving <IPv4 address / MAC address> */
+    // ARP解析表（网关IP到MAC的映射）
     typedef std::map<Ipv4Address, Mac48Address> IpMacMap_t;
-    IpMacMap_t m_arpTable; //!< ARP resolution table.
+    IpMacMap_t m_arpTable;
 
-    /**
-     * \name L2 switching structures
-     */
-    //\{
-    /** L2SwitchingTable: map MacAddress to port */
+    // 交换机-主机映射（key: 交换机DPID，value: 域内主机列表）
+    typedef std::map<uint64_t, std::vector<HostInfo>> SwitchHostMap_t;
+    SwitchHostMap_t m_switchHosts;
+
+    // 交换机互联端口映射（key: 本交换机DPID，value: 目标交换机+端口列表）
+    typedef std::map<uint64_t, std::vector<SwitchPortMapping>> SwitchPortMap_t;
+    SwitchPortMap_t m_switchPortMappings;
+
+    // 子网->交换机DPID映射（key: 子网字符串，value: 所属交换机DPID）
+    typedef std::map<std::string, uint64_t> SubnetSwitchMap_t;
+    SubnetSwitchMap_t m_subnetToSwitchMap;
+
+    // 二层转发表（MAC到端口）
     typedef std::map<Mac48Address, uint32_t> L2Table_t;
-
-    /** Map datapathID to L2SwitchingTable */
     typedef std::map<uint64_t, L2Table_t> DatapathMap_t;
-
-    /** Switching information for all dapataths */
     DatapathMap_t m_learnedInfo;
-    //\}
+
+    // 三层转发表（IP到<MAC, 端口>）
+    typedef std::map<Ipv4Address, std::pair<Mac48Address, uint32_t>> L3Table_t;
+    typedef std::map<uint64_t, L3Table_t> L3DatapathMap_t;
+    L3DatapathMap_t m_l3LearnedInfo;
+
+    void SetRP();
+    void SetPriorityToAll();
   };
 
 } // namespace ns3

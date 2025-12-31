@@ -1,13 +1,13 @@
 /* -*- Mode: C++; c-file-style: "gnu"; indent-tabs-mode:nil; -*- */
 /*
- * 单控制器，跨域 SDN 示例，使用 ns-3 + ofswitch13 模块
+ * Single-controller, cross-domain SDN example with ns-3 + ofswitch13
  *
- * - 域 A: hostsA (2 主机) -- sw1
- * - 域 B: hostsB (2 主机) -- sw2
- * - 路由器节点连接 sw1 和 sw2（有两个子网的 IP）
- * - 单 OpenFlow 控制器管理 sw1 和 sw2
+ * - Domain A: hostsA (2 hosts) -- sw1
+ * - Domain B: hostsB (2 hosts) -- sw2
+ * - Router node connects to sw1 and sw2 (has IPs in both subnets)
+ * - Single OpenFlow controller manages sw1 and sw2
  *
- * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
+ * Build: make sure ns-3 is built with ofswitch13 module.
  */
 
 #include <ns3/core-module.h>
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
     bool trace = false;
 
     CommandLine cmd;
-    cmd.AddValue("simTime", "simulate time ", simTime); // 设置仿真时间
+    cmd.AddValue("simTime", "simulate time ", simTime); //
     cmd.AddValue("verbose", "enable verbose logs", verbose);
     cmd.AddValue("trace", "enable trace /pcap", trace);
     cmd.Parse(argc, argv);
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
         /* code */
     }
 
-    // 启用校验和计算（ofswitch13 模块所需）
+    // Enable checksum computations (required by OFSwitch13 module)
     GlobalValue::Bind("ChecksumEnabled", BooleanValue(true));
 
     NodeContainer hostsA;
@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
     NetDeviceContainer hostDevsA, hostDevsB, ApDevsC;
     NetDeviceContainer sw1Devsports, sw2Devsports, sw3Devsports;
     NetDeviceContainer routerDevsA, routerDevsB, routerDevsC;
-    // 连接域 A 主机到 sw1
+    // Connect Domain A hosts to sw1
     for (uint32_t i = 0; i < hostsA.GetN(); ++i)
     {
         NodeContainer pair(hostsA.Get(i), sw1);
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
         hostDevsA.Add(link.Get(0));
         sw1Devsports.Add(link.Get(1));
     }
-    // 连接域 B 主机到 sw2
+    // Connect Domain B hosts to sw1
     for (uint32_t i = 0; i < hostsB.GetN(); ++i)
     {
         NodeContainer pair(hostsB.Get(i), sw2);
@@ -104,29 +104,29 @@ int main(int argc, char *argv[])
         sw2Devsports.Add(link.Get(1));
     }
 
-    // 连接路由器到 sw1（域 A 网络）
+    // Connect router to sw1 (network A)
     {
         NodeContainer pair(routerNode1, sw1);
         NetDeviceContainer link = csma.Install(pair);
         routerDevsA.Add(link.Get(0));
         sw1Devsports.Add(link.Get(1));
     }
-    // 连接路由器到 sw2（域 B 网络）
+    // Connect router to sw2 (network B)
     {
         NodeContainer pair(routerNode1, sw2);
         NetDeviceContainer link = csma.Install(pair);
-        routerDevsB.Add(link.Get(0));  // 路由器在 B 网络的接口
-        sw2Devsports.Add(link.Get(1)); // 将这个端口加入sw2
+        routerDevsB.Add(link.Get(0));  // router interface in net B
+        sw2Devsports.Add(link.Get(1)); // add this port to sw2
     }
-    // 连接路由器到 sw3（域 C 网络）
+    // Connect router to sw3 (network C)
     {
         NodeContainer pair(routerNode1, sw3);
         NetDeviceContainer link = csma.Install(pair);
-        routerDevsC.Add(link.Get(0));  // 路由器在 C 网络的接口
-        sw3Devsports.Add(link.Get(1)); // 将这个端口添加到sw3
+        routerDevsC.Add(link.Get(0));  // router interface in net C
+        sw3Devsports.Add(link.Get(1)); // add this port to sw3
     }
     csma.EnablePcapAll("csma-trace", true);
-    // wifi配置部分
+    // wifi
     NodeContainer wifiStaNodes;
     wifiStaNodes.Create(3);
     NodeContainer wifiApNode;
@@ -153,13 +153,10 @@ int main(int argc, char *argv[])
 
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-    mobility.Install(wifiApNode);
-    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
-                              "Time", TimeValue(Seconds(1.0)),                                      // 每次移动的间隔时间
-                              "Speed", StringValue("ns3::UniformRandomVariable[Min=0.1|Max=0.5]")); // 移动速度
     mobility.Install(wifiStaNodes);
+    mobility.Install(wifiApNode);
 
-    // 连接域 C 主机到 sw3
+    // Connect Domain C hosts to sw3
     {
         NodeContainer pair(wifiApNode.Get(0), sw3);
         NetDeviceContainer link = csma.Install(pair);
@@ -186,12 +183,12 @@ int main(int argc, char *argv[])
             DynamicCast<OFSwitch13LearningController>(get.Get(0));
 
     // --------------------------
-    // 4. 网络栈配置部分
+    // 4. Internet Stack
     // --------------------------
     // Config::SetDefault("ns3::Ipv4GlobalRouting::RespondToInterfaceEvents", BooleanValue(true));
     // Config::SetDefault("ns3::Ipv4::IpForward", BooleanValue(true));
 
-    // 为主机配置静态默认路由指向路由器
+    // Set up static default routes on hosts to the router
     Ipv4StaticRoutingHelper staticRoutingHelper;
 
     InternetStackHelper stack;
@@ -216,18 +213,18 @@ int main(int argc, char *argv[])
         Ptr<Ipv4> ipv4 = wifiStaNodes.Get(i)->GetObject<Ipv4>();
         ipv4->SetAttribute("IpForward", BooleanValue(true)); // 启用转发
     }
-    // 分配IPv4地址
+    // Assign IPv4 addresses
     Ipv4AddressHelper ipv4;
 
-    Ipv4InterfaceContainer ifA; // 域A主机和路由器接口
+    Ipv4InterfaceContainer ifA; // domain A hosts + router interface
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
-    // 给 hostsA 设备和 routerDevsA 分配地址
+    // assign addresses to hostsA devices + routerDevsA (must combine)
     {
         NetDeviceContainer netA = NetDeviceContainer();
-        // 主机先分配
+        // host devices first
         for (uint32_t i = 0; i < hostDevsA.GetN(); ++i)
             netA.Add(hostDevsA.Get(i));
-        // 为A域配置路由器接口
+        // router interface for net A
         for (uint32_t i = 0; i < routerDevsA.GetN(); ++i)
             netA.Add(routerDevsA.Get(i));
         ifA = ipv4.Assign(netA);
@@ -244,16 +241,16 @@ int main(int argc, char *argv[])
         ifB = ipv4.Assign(netB);
     }
 
-    // wifi 网络配置
+    // wifi 网络
     Ipv4InterfaceContainer ifC;
     ipv4.SetBase("10.3.1.0", "255.255.255.0");
     {
         NetDeviceContainer netC = NetDeviceContainer();
-        // 先配置主机
+        // host devices first
         for (uint32_t i = 0; i < staDevices.GetN(); ++i)
             netC.Add(staDevices.Get(i));
 
-        // 为A域配置路由器接口
+        // router interface for net A
         for (uint32_t i = 0; i < routerDevsC.GetN(); ++i)
             netC.Add(routerDevsC.Get(i));
         for (uint32_t i = 0; i < adhocDevices.GetN(); ++i)
@@ -262,11 +259,11 @@ int main(int argc, char *argv[])
     } // wifi 网络
 
     ///----------------------------------------///
-    // 路由器的 IP 地址配置
-    Ipv4Address routerA = ifA.GetAddress(hostDevsA.GetN()); // 路由器A的地址
+    // Router's IP in net A is the *last* assigned in ifA (we assigned hosts then router)
+    Ipv4Address routerA = ifA.GetAddress(hostDevsA.GetN()); // index after hosts
     Ipv4Address routerB = ifB.GetAddress(hostDevsB.GetN());
     Ipv4Address routerC = ifC.GetAddress(staDevices.GetN());
-    // 为 C 网络的主机设置默认路由到路由器 C
+    // For hosts in C: set default route to routerC
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i)
     {
         Ptr<Node> h = wifiStaNodes.Get(i);
@@ -276,7 +273,7 @@ int main(int argc, char *argv[])
         staticRouting->SetDefaultRoute(routerC, 1);
     }
 
-    // 为 A 网络的主机设置默认路由到路由器 A
+    // For hosts in A: set default route to routerA
     for (uint32_t i = 0; i < hostsA.GetN(); ++i)
     {
         Ptr<Node> h = hostsA.Get(i);
@@ -285,7 +282,7 @@ int main(int argc, char *argv[])
         staticRouting->SetDefaultRoute(routerA, 1);
     }
 
-    // 为 B 网络的主机设置默认路由到路由器 B
+    // For hosts in B: set default route to routerB
     for (uint32_t i = 0; i < hostsB.GetN(); ++i)
     {
         Ptr<Node> h = hostsB.Get(i);
@@ -297,7 +294,7 @@ int main(int argc, char *argv[])
     phy.EnablePcap("stapcap", staDevices);
     phy.EnablePcap("appcap", apDevice);
 
-    // 启用pcap追踪
+    // (Optional) Enable pcap/traces
     if (true)
     {
         of13Helper->EnableOpenFlowPcap("openflow-interdomain");
@@ -320,6 +317,7 @@ int main(int argc, char *argv[])
         s->AddHostRouteTo(ifC.GetAddress(1), 1);
         s->AddHostRouteTo(ifC.GetAddress(2), 1);
         s->AddHostRouteTo(ifC.GetAddress(3), 1);
+
         s->AddHostRouteTo(ifC.GetAddress(i + 4), 0);
     }
     Ipv4StaticRoutingHelper staticRoutingHelper2;
@@ -334,10 +332,12 @@ int main(int argc, char *argv[])
     //   ApplicationContainer pingApp2 = ping2.Install(wifiStaNodes.Get(1));
 
     // Ping from Domain A host 0 to Domain B host 0 (cross-domain ping)
-    Ipv4Address dst = ifC.GetAddress(2); // first host in domain C
+
+    //
+    Ipv4Address dst = ifB.GetAddress(2); // first host in domain C
     V4PingHelper ping(dst);
     ping.SetAttribute("Verbose", BooleanValue(true));
-    ApplicationContainer pingApp = ping.Install(wifiStaNodes.Get(1));
+    ApplicationContainer pingApp = ping.Install(wifiStaNodes.Get(1)); //
 
     pingApp.Start(Seconds(1.0));
     pingApp.Stop(Seconds(simTime - 1));
