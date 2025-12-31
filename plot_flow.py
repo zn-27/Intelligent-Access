@@ -99,7 +99,8 @@ plot_on_axes(axs[1, 1],
              "Jitter (ms)", "(d) Jitter")
 
 # ========== 布局调整 & 保存 ==========
-plt.tight_layout(rect=[0, 0, 1, 0.95])
-plt.subplots_adjust(hspace=0.4)
-plt.savefig("flow_stats_merged.png", dpi=300)
+# ========== 布局调整 & 保存 ==========
+plt.tight_layout(rect=[0, 0.08, 1, 1])   # 给底部留 8%
+plt.subplots_adjust(hspace=0.4, bottom=0.12)
+plt.savefig("flow_stats_merged.png", dpi=300, bbox_inches='tight')
 plt.show()
