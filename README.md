@@ -108,3 +108,6 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34
 
 ### 4.好的参考
 https://maizhude.github.io/
+http://www.lrc.ic.unicamp.br/ofswitch13/
+https://www.nsnam.org/
+https://github.com/CPqD/ofsoftswitch13/wiki
