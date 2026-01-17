@@ -91,7 +91,7 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34/contrib/ofswitch13/lib/ofsoftswitch1
 # 并行编译（8 线程）
 make -j8
 ```
-
+编译完成之后会在lib/ofsoftswitch13/udatapath文件夹下生成一个重要文件 libns3ofswitch13.a，ns3编译时就是找是否存在这个文件，有的话才会开启openflow13的编译。
 ### 2. 编译整个项目：
 ```bash
 # 回到 NS-3 根目录
