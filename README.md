@@ -91,7 +91,7 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34/contrib/ofswitch13/lib/ofsoftswitch1
 # 并行编译（8 线程）
 make -j8
 ```
-
+编译完成之后会在lib/ofsoftswitch13/udatapath文件夹下生成一个重要文件 libns3ofswitch13.a，ns3编译时就是找是否存在这个文件，有的话才会开启openflow13的编译。
 ### 2. 编译整个项目：
 ```bash
 # 回到 NS-3 根目录
@@ -105,3 +105,9 @@ cd /home/your-home/ns-allinone-3.34/ns-3.34
 ```
 
 ### 3. 验证 OpenFlow 1.3 模块是否启用：
+
+### 4.好的参考
+安装参考文档：https://maizhude.github.io/  
+ofswitch13官网：http://www.lrc.ic.unicamp.br/ofswitch13/   
+ns3官网：https://www.nsnam.org/  
+ofsoftswitch13 wiki：https://github.com/CPqD/ofsoftswitch13/wiki   

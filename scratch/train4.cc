@@ -1,4 +1,3 @@
-
 /* -*- Mode: C++; c-file-style: "gnu"; indent-tabs-mode:nil; -*- */
 /*
  * 单控制器，跨域 SDN 示例，使用 ns-3 + ofswitch13 模块
@@ -12,7 +11,6 @@
  * -
  * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
  */
-
 #include <ns3/core-module.h>
 #include <ns3/network-module.h>
 #include <ns3/csma-module.h>
