@@ -11,7 +11,6 @@
  * -
  * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
  */
-
 #include <ns3/core-module.h>
 #include <ns3/network-module.h>
 #include <ns3/csma-module.h>
@@ -317,6 +316,29 @@ int main(int argc, char *argv[])
 
     mac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer adhocDevsC = wifi.Install(phyC, mac, StaC);
+
+
+    // 在这里添加AP应用创建代码：
+// 为域A的AP节点创建应用
+for (uint32_t i = 0; i < ApA.GetN(); ++i) {
+    Ptr<ApProtocolInfoApp> apAppA = CreateObject<ApProtocolInfoApp>();
+    ApA.Get(i)->AddApplication(apAppA);
+    apAppA->SetStartTime(Seconds(0.0));
+    apAppA->SetStopTime(Seconds(simTime - 1.0));
+}
+
+// 为域B的AP节点创建应用
+Ptr<ApProtocolInfoApp> apAppB = CreateObject<ApProtocolInfoApp>();
+ApB.Get(0)->AddApplication(apAppB);
+apAppB->SetStartTime(Seconds(0.0));
+apAppB->SetStopTime(Seconds(simTime - 1.0));
+
+// 为域C的AP节点创建应用
+Ptr<ApProtocolInfoApp> apAppC = CreateObject<ApProtocolInfoApp>();
+ApC.Get(0)->AddApplication(apAppC);
+apAppC->SetStartTime(Seconds(0.0));
+apAppC->SetStopTime(Seconds(simTime - 1.0));
+
 
     // 合并所有sta设备
     NetDeviceContainer allStaDevices;
@@ -810,12 +832,29 @@ int main(int argc, char *argv[])
         std::cout << "注册ARP条目：ApC[0] 网关 " << apCIp << " -> " << apCMac << std::endl;
     }
 
+    
+// 添加获取AP和STA消息的调度函数
+Ptr<OFSwitch13Device> sw1Device = sw1->GetObject<OFSwitch13Device>();
+Ptr<OFSwitch13Device> sw2Device = sw2->GetObject<OFSwitch13Device>();
+Ptr<OFSwitch13Device> sw3Device = sw3->GetObject<OFSwitch13Device>();
+
+
+if (sw1Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
+}
+if (sw2Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
+}
+if (sw3Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
+}
+
     // LogComponentEnable("OFSwitch13Controller", LOG_LEVEL_DEBUG);
     // 两秒时设置控制器路由优先级
     Simulator::Schedule(Seconds(2.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.1), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.3), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
-
+    
     FlowMonitorHelper flowmonHelper;
 
     // 只监控 STA 节点
@@ -827,7 +866,7 @@ int main(int argc, char *argv[])
     Ptr<FlowMonitor> monitor = flowmonHelper.Install(monitorNodes);
 
     // 打开输出文件
-    std::ofstream fout("flow_stats2.csv");
+    std::ofstream fout("flow_stats.csv");
     fout << "Time";
     for (int i = 1; i <= 4; ++i)
     { // 有4条链路
@@ -859,7 +898,7 @@ int main(int argc, char *argv[])
         std::cout << std::endl;
     }
 
-    monitor->SerializeToXmlFile("flowmon-results2.xml", true, true);
+    monitor->SerializeToXmlFile("flowmon-results.xml", true, true);
     fout.close();
 
     /*  PrintMyFlowStats(monitor, &flowmonHelper);*/
