@@ -95,8 +95,9 @@ struct adhocl_ext_protocol_config_reply
     uint16_t p1;
     uint16_t p2;
     uint16_t p3;
-    uint8_t pad1[2];
+    //uint8_t pad1[2];
     uint64_t mac_ad;
+    uint32_t ip_ad;
 };
 
 struct adhocl_ext_protocol_set
@@ -111,6 +112,53 @@ struct adhocl_ext_protocol_set
     uint64_t mac_ad;
 };
 
+// 自定义 STA 信息收集报文结构
+struct adhocl_ext_stainfo
+{
+    struct ofl_msg_header header;    // OpenFlow 报文头部
+    uint32_t vendor;             // 自定义厂商 ID
+    uint32_t subtype;            // 报文子类型（用于标识该类型的报文）
+    uint32_t ip_address;         // STA 的 IP 地址（4字节，IPv4
+    uint64_t mac_address;        // STA 的 MAC 地址
+    uint32_t port_number;       // 交换机端口号
+    uint8_t pad[4];
+};
+//test
+struct adhocl_ext_test
+{
+    struct ofl_msg_header header;
+    uint32_t vendor;
+    uint32_t subtype;
+    uint32_t ip_address; 
+    uint32_t p1;
+    uint32_t p2;
+    uint32_t p3;
+    uint32_t p4;
+    uint32_t p5;
+
+};
+//通知切换组网模式（打开ADHoc接口）
+struct adhocl_ext_changelogical
+{
+    struct ofl_msg_header header;
+    uint32_t vendor;
+    uint32_t subtype;
+    uint32_t op;        // 0 = DOWN, 1 = UP  
+    uint32_t ip_address;
+
+};
+//上传位置信息和ip地址信息
+struct adhocl_ext_node_status_report
+{
+    struct ofl_msg_header header;
+    uint32_t vendor;
+    uint32_t subtype;
+    uint32_t ip_address;
+    float x;
+    float y;
+    float z;
+
+};
 //--------------------------------------
 
 /********************

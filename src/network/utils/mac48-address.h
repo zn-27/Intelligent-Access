@@ -136,6 +136,13 @@ public:
    */
   typedef void (* TracedCallback)(Mac48Address value);
   
+   //---------------自定义函数---------------
+   /**
+   * 将 48 位 MAC 地址转换为 64 位无符号整数
+   * 高 16 位填充为 0，低 48 位为 MAC 地址的 6 个字节
+   * \return 转换后的 64 位整数
+   */
+  uint64_t ConvertToU64() const;
 private:
   /**
    * \returns a new Address instance

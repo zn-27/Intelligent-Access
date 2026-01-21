@@ -33,6 +33,8 @@
 #include "ns3/data-rate.h"
 #include "ns3/ptr.h"
 #include "ns3/mac48-address.h"
+//------------------------------------
+#include "ns3/ap-app-module.h"
 
 namespace ns3 {
 
@@ -211,6 +213,10 @@ public:
    */
   CsmaNetDevice::EncapsulationMode  GetEncapsulationMode (void);
 
+  //自定义函数---------------------------------
+  // 获取 AP 节点上的 replies
+  std::vector<Reply> GetApReplies();
+  void SetPriority(int32_t newAodvPri, int32_t newOlsrPri, int32_t newStaticPri);
   //
   // The following methods are inherited from NetDevice base class.
   //
@@ -363,6 +369,7 @@ protected:
    * payload contained in this packet.
    */
   void AddHeader (Ptr<Packet> p, Mac48Address source, Mac48Address dest, uint16_t protocolNumber);
+  
 
 private:
 

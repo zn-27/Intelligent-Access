@@ -444,6 +444,289 @@ namespace ns3
     NS_ASSERT_MSG(no > 0 && no <= m_ports.size(), "Port is out of range.");
     return m_ports.at(no - 1);
   }
+  //---------------------------自定义------------------------------
+  void
+  OFSwitch13Device::GetApStaMessages()
+  {
+    std::cout << "正在获取sta信息" << std::endl;
+
+    //Ptr<Packet> packet = Create<Packet>((uint8_t*)&msg0, sizeof(msg0));
+    
+    // 遍历交换机所有 OpenFlow 端口
+    for (auto const &p : m_ports)
+    {
+        uint32_t portNo = p-> GetPortNo();
+        Ptr<NetDevice> swPortDev = p-> GetPortDevice();// 获取端口对应的NetDevice
+
+        //跳过：无通道 或 通道上不是 2 个设备（排除广播/多设备链路)
+        Ptr<Channel> ch = swPortDev->GetChannel();
+        if (!ch || ch->GetNDevices() != 2)
+            continue;
+
+        // 找另一端 Node（可能是 AP）
+        Ptr<Node> otherNode = nullptr;
+        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+        {
+            Ptr<NetDevice> dev = ch->GetDevice(i);
+            if (dev != swPortDev )
+            {
+                otherNode = dev->GetNode();
+                break;
+            }
+        }
+
+        if (!otherNode)
+            continue;
+
+        // 不是 AP 就跳过
+        bool isAp = false;
+        for (uint32_t i = 0; i < otherNode->GetNDevices(); i++)
+        {
+            Ptr<WifiNetDevice> wifiDev = DynamicCast<WifiNetDevice>(otherNode->GetDevice(i));
+            if (!wifiDev) continue;
+
+            if (DynamicCast<ApWifiMac>(wifiDev->GetMac()))
+            {
+                isAp = true;
+                break;
+            }
+        }
+        if (!isAp)
+            continue;
+
+        // 找 AP 上的 ApProtocolInfoApp
+        Ptr<ApProtocolInfoApp> apApp = nullptr;
+        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++)
+        {
+            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+            if (apApp)
+                break;
+        }
+
+        if (!apApp)
+        {   
+            NS_LOG_WARN("AP connected to switch but has no ApProtocolInfoApp.");
+            continue;
+        }
+        // 调用 AP 的 GetStaMessages()
+        std::cout<<"正在调用ap的函数"<<std::endl;
+        std::vector<stamessage> msgs = apApp->GetStaMessages();
+        
+        // 遍历 STA 列表，获取每个 STA 的成员变量
+        for (const auto& staMsg : msgs) 
+        {   
+           // 跳过IP或MAC为空的无效STA
+          if (staMsg.ip_address==0x00000000|| staMsg.mac_address== 0xFFFFFFFF)
+          {
+            NS_LOG_WARN("STA has empty IP/MAC, skip sending.");
+            continue;
+          }
+          struct adhocl_ext_stainfo stainfo1;
+          stainfo1.header.type = ADHOC_EXT_STAINFO ;
+          stainfo1.vendor = 0x12345;
+          stainfo1.subtype = 5001 ;
+          stainfo1.port_number = portNo;    
+          stainfo1.ip_address = staMsg.ip_address;
+          stainfo1.mac_address = staMsg.mac_address;
+
+          Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&stainfo1, 0);
+          Ptr<RemoteController> remoteCtrl = nullptr;
+          // 先判断向量非空
+          if (!m_controllers.empty()) 
+          { 
+            remoteCtrl = m_controllers.back();// 最近一次绑定的控制器指针
+          }
+          if (remoteCtrl)
+          {
+            std::cout<<"Stamessage is sending to controller."<<std::endl;
+            int re=SendToController(packet, remoteCtrl);
+            std::cout<<re<<std::endl;
+            NS_LOG_INFO("Sta Mssage sent to controller.");
+          }
+          else
+          {
+            std::cout<<"No controller found, cannot send stamessage." << std::endl;
+            NS_LOG_ERROR("No controller found, cannot send message.");
+          }
+          memset(&stainfo1, 0, sizeof(stainfo1));
+        }
+        
+    }
+
+    return ;
+  }
+  //自定义函数2：修改组网模式-------------------
+  void
+  OFSwitch13Device::Changelogical(uint32_t op)
+  {
+    NS_LOG_FUNCTION(this << op);
+    // 遍历交换机所有 OpenFlow 端口
+    for (auto const &p : m_ports)
+    {
+        Ptr<NetDevice> swPortDev = p-> GetPortDevice();// 获取端口对应的NetDevice
+
+        //跳过：无通道 或 通道上不是 2 个设备（排除广播/多设备链路)
+        Ptr<Channel> ch = swPortDev->GetChannel();
+        if (!ch || ch->GetNDevices() != 2)
+            continue;
+
+        // 找另一端 Node（可能是 AP）
+        Ptr<Node> otherNode = nullptr;
+        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+        {
+            Ptr<NetDevice> dev = ch->GetDevice(i);
+            if (dev != swPortDev )
+            {
+                otherNode = dev->GetNode();
+                break;
+            }
+        }
+
+        if (!otherNode)
+            continue;
+
+        // 不是 AP 就跳过
+        bool isAp = false;
+        for (uint32_t i = 0; i < otherNode->GetNDevices(); i++)
+        {
+            Ptr<WifiNetDevice> wifiDev = DynamicCast<WifiNetDevice>(otherNode->GetDevice(i));
+            if (!wifiDev) continue;
+
+            if (DynamicCast<ApWifiMac>(wifiDev->GetMac()))
+            {
+                isAp = true;
+                break;
+            }
+        }
+        if (!isAp)
+            continue;
+
+        // 找 AP 上的 ApProtocolInfoApp
+        Ptr<ApProtocolInfoApp> apApp = nullptr;
+        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++)
+        {
+            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+            if (apApp)
+                break;
+        }
+
+        if (!apApp)
+        {   
+            NS_LOG_WARN("AP connected to switch but has no ApProtocolInfoApp.");
+            continue;
+        }
+        // 调用 AP 的 ChangeZuWang()
+        std::cout<<"正在调用ap的函数"<<std::endl;
+        apApp->ChangeZuWang(op);
+    }
+  }
+  //------------------------自定义函数3:周期性发送节点的位置信息--------------------------------
+  void
+  OFSwitch13Device::SendPosition()
+  { 
+    std::cout << "正在获取sta的位置信息" << std::endl;
+    // 遍历交换机所有 OpenFlow 端口
+    for (auto const &p : m_ports)
+    {
+        Ptr<NetDevice> swPortDev = p-> GetPortDevice();// 获取端口对应的NetDevice
+
+        //跳过：无通道 或 通道上不是 2 个设备（排除广播/多设备链路)
+        Ptr<Channel> ch = swPortDev->GetChannel();
+        if (!ch || ch->GetNDevices() != 2)
+            continue;
+
+        // 找另一端 Node（可能是 AP）
+        Ptr<Node> otherNode = nullptr;
+        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+        {
+            Ptr<NetDevice> dev = ch->GetDevice(i);
+            if (dev != swPortDev )
+            {
+                otherNode = dev->GetNode();
+                break;
+            }
+        }
+
+        if (!otherNode)
+            continue;
+
+        // 不是 AP 就跳过
+        bool isAp = false;
+        for (uint32_t i = 0; i < otherNode->GetNDevices(); i++)
+        {
+            Ptr<WifiNetDevice> wifiDev = DynamicCast<WifiNetDevice>(otherNode->GetDevice(i));
+            if (!wifiDev) continue;
+
+            if (DynamicCast<ApWifiMac>(wifiDev->GetMac()))
+            {
+                isAp = true;
+                break;
+            }
+        }
+        if (!isAp)
+            continue;
+
+        // 找 AP 上的 ApProtocolInfoApp
+        Ptr<ApProtocolInfoApp> apApp = nullptr;
+        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++)
+        {
+            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+            if (apApp)
+                break;
+        }
+
+        if (!apApp)
+        {   
+            NS_LOG_WARN("AP connected to switch but has no ApProtocolInfoApp.");
+            continue;
+        }
+        // 调用 AP 的 GetStaMessages()
+        std::cout<<"正在调用ap的函数"<<std::endl;
+        std::vector<Position> msgs = apApp->SendNodePosition();
+        
+        // 遍历 STA 列表，获取每个 STA 的成员变量
+        for (const auto& staPos : msgs) 
+        {   
+           // 跳过IP或MAC为空的无效STA
+          if (staPos.ip_ad==0x00000000)
+          {
+            NS_LOG_WARN("STA has empty IP skip sending.");
+            continue;
+          }
+          struct adhocl_ext_node_status_report rep;
+          rep.header.type = ADHOC_EXT_NODE_STATUS_REPORT ;
+          rep.vendor = 0x12345678;
+          rep.subtype = 8001 ;  
+          rep.ip_address = staPos.ip_ad;
+          rep.x = staPos.x;
+          rep.y = staPos.y;
+          rep.z = staPos.z;
+          Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+          Ptr<RemoteController> remoteCtrl = nullptr;
+          // 先判断向量非空
+          if (!m_controllers.empty()) 
+          { 
+            remoteCtrl = m_controllers.back();// 最近一次绑定的控制器指针
+          }
+          if (remoteCtrl)
+          {
+            std::cout<<"Sta Position is sending to controller."<<std::endl;
+            int re=SendToController(packet, remoteCtrl);
+            std::cout<<re<<std::endl;
+            NS_LOG_INFO("Sta Position sent to controller.");
+          }
+          else
+          {
+            std::cout<<"No controller found, cannot send Position." << std::endl;
+            NS_LOG_ERROR("No controller found, cannot send Position.");
+          }
+          memset(&rep, 0, sizeof(rep));
+        }
+        
+    }
+
+  }
+
 
   void
   OFSwitch13Device::ReceiveFromSwitchPort(Ptr<Packet> packet, uint32_t portNo,
@@ -1075,8 +1358,8 @@ namespace ns3
     free(msgStr);
 
     // Increase internal counters based on message type.
-    switch (msg->type)
-    {
+  switch (msg->type)
+  {
 
     case (OFPT_PACKET_OUT):
     {
@@ -1098,23 +1381,184 @@ namespace ns3
       m_cGroupMod++;
       break;
     }
+    case (ADHOC_EXT_PROTOCOL_SET):
+    {
+      std::cout<<"set lai le-----------"<<std::endl;
+      break;
+    }
+    //TEST
+    case (ADHOC_EXT_TEST):
+    {
+      std::cout<<"TEST lai le-------------"<<std::endl;
+      struct adhocl_ext_test *testMsg =(struct adhocl_ext_test *) msg;
+      uint32_t p1 = testMsg->p1;  //aodv
+      uint32_t p2 = testMsg->p2;  //olsr
+      uint32_t p3 = testMsg->p3;  //static
+      
+       //遍历交换机端口节点用来获取函数；
+      for (uint32_t i = 0; i < m_ports.size(); ++i)
+      {
+        Ptr<OFSwitch13Port> port = m_ports[i];   // 直接通过下标获取端口对象
+
+        if (!port)
+        { 
+          std::cout << "bu cun zai zhe ge port" << std::endl;
+          continue;
+        } 
+
+        Ptr<NetDevice> switchPortDevice = port->GetPortDevice();  // 获取端口对应的NetDevice
+        Ptr<Channel> channel = switchPortDevice->GetChannel();   // 获取通道
+
+        Ptr<CsmaChannel> csmaChannel = DynamicCast<CsmaChannel>(channel);
+        if (csmaChannel)
+        {
+            // 遍历通道上的所有设备，找到不是交换机端口的那个（主机设备）
+            for (uint32_t j = 0; j < csmaChannel->GetNDevices(); ++j)
+            {
+                Ptr<NetDevice> device = csmaChannel->GetDevice(j);
+
+                if (device != switchPortDevice)
+                {
+                    std::cout << "Switch port " << i << " is connected to host device: "
+                              << device->GetAddress() << std::endl;
+
+                    // 调用拓展函数CsmaNetDevice::GetApReplies
+                    Ptr<CsmaNetDevice> csmaDev = DynamicCast<CsmaNetDevice>(device);
+                    if (csmaDev)
+                    {
+                        csmaDev->SetPriority(p1,p2,p3);
+                    }
+                }
+            }
+         }
+      
+      }
+      return;
+    }
+    //----------adhoc切换分支-------------
+    case (ADHOC_EXT_CHANGELOGICAL):
+    {
+      std::cout<<"组网切换通知 lai le-------------"<<std::endl;
+      struct adhocl_ext_changelogical *Msg =(struct adhocl_ext_changelogical *) msg;
+      uint32_t op = Msg->op ;
+      uint32_t ip = Msg->ip_address;
+      if(!op||!ip)
+      {
+        return ;
+      }
+      Changelogical(op);
+      return;
+    }
     // 👇👇 这里是你新增的分支 👇👇
     case (ADHOC_EXT_PROTOCOL_CONFIG_REQUEST):
     {
       NS_LOG_INFO("Received custom message: ADHOCL_EXT_PROTOCOL_SET from controller");
 
       std::cout << "lai le-------------------------" << std::endl;
+      std::vector<Reply> allReplies;
 
-      // 释放消息
-      // ofl_msg_free(msg, m_datapath->exp);
-      // ofpbuf_delete(buffer);
+      for (uint32_t i = 0; i < m_ports.size(); ++i)
+      {
+          Ptr<OFSwitch13Port> port = m_ports[i];
+          if (!port)
+          {
+            std::cout << "Port " << i << " not exist." << std::endl;
+            continue;
+          }
+
+          Ptr<NetDevice> switchPortDevice = port->GetPortDevice();
+          Ptr<Channel> channel = switchPortDevice->GetChannel();
+          Ptr<CsmaChannel> csmaChannel = DynamicCast<CsmaChannel>(channel);
+
+          if (!csmaChannel)
+              continue;
+
+          // 查找 AP 端口上的 CsmaNetDevice
+          for (uint32_t j = 0; j < csmaChannel->GetNDevices(); ++j)
+          {
+            Ptr<NetDevice> device = csmaChannel->GetDevice(j);
+
+            if (device != switchPortDevice)
+            {
+                Ptr<CsmaNetDevice> csmaDev = DynamicCast<CsmaNetDevice>(device);
+                if (csmaDev)
+                {
+                    std::vector<Reply> replies = csmaDev->GetApReplies();
+                    if (!replies.empty())
+                    {
+                        std::cout << "[Switch] Port " << i
+                                  << " collected " << replies.size()
+                                  << " replies from AP." << std::endl;
+
+                        // 把当前 AP 所有 replies 加入总集合
+                        allReplies.insert(allReplies.end(), replies.begin(), replies.end());
+                    }
+                }
+            }
+          }
+      }
+      // ---------------- 如果为空则不发送 ----------------
+      if (allReplies.empty())
+      {
+        NS_LOG_WARN("No AP replies collected, skip sending.");
+        std::cout << "[Switch] No AP replies collected, skip send." << std::endl;
+
+        ofl_msg_free(msg, m_datapath->exp);
+        ofpbuf_delete(buffer);
+        return;
+      }
+
+      // ---------------- 获取控制器 ----------------
+      Ptr<RemoteController> remoteCtrl = nullptr;
+      if (!m_controllers.empty())
+          remoteCtrl = m_controllers.back();
+
+      if (!remoteCtrl)
+      {
+        NS_LOG_ERROR("No controller found, cannot send reply.");
+        ofl_msg_free(msg, m_datapath->exp);
+        ofpbuf_delete(buffer);
+        return;
+      }
+
+      // ---------------- 遍历 allReplies，一个个发送 ----------------
+      for (const auto &r : allReplies)
+      {
+        adhocl_ext_protocol_config_reply reply;
+        memset(&reply, 0, sizeof(reply));
+
+        reply.header.type = ADHOC_EXT_PROTOCOL_CONFIG_REPLY;
+        reply.subtype = r.subtype;
+        reply.vendor  = r.vendor;
+        reply.mac_ad  = r.mac_ad;
+        reply.p1      = r.p1;
+        reply.p2      = r.p2;
+        reply.p3      = r.p3;
+        reply.ip_ad   = r.ip_ad;
+        std::cout << "[Switch] Sending single reply: subtype=" << r.subtype
+                  << " vendor=" << r.vendor
+                  << " mac=" << r.mac_ad << std::endl;
+
+        Ptr<Packet> packet = ofs::PacketFromMsg(
+            (struct ofl_msg_header *)&reply,
+            sizeof(reply)
+        );
+
+        SendToController(packet, remoteCtrl);
+      }
+
+      std::cout << "[Switch] All " << allReplies.size()
+                << " replies have been sent to controller." << std::endl;
+
+      ofl_msg_free(msg, m_datapath->exp);
+      ofpbuf_delete(buffer);
       return;
     }
     default:
     {
       // std::cout << "lai le-------------------------" << std::endl;
     }
-    }
+  }
 
     // Send the message to handler.
     error = handle_control_msg(m_datapath, msg, &senderCtrl);

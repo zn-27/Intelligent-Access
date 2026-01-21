@@ -1897,8 +1897,9 @@ adhocl_ext_unpack_protocol_config_reply(struct ofp_header *src, size_t *len, str
     dr->p1 = ntohs(sr->p1);                   // 16-bit
     dr->p2 = ntohs(sr->p2);                   // 16-bit
     dr->p3 = ntohs(sr->p3);                   // 16-bit
-    memset(dr->pad1, 0x00, sizeof(dr->pad1)); // pad 清零
+    //memset(dr->pad1, 0x00, sizeof(dr->pad1)); // pad 清零
     dr->mac_ad = ntoh64(sr->mac_ad);          // 64-bit，自定义宏
+    dr->ip_ad  = ntohl(sr->ip_ad);           
 
     // 5️⃣ 输出结果
     *msg = (struct ofl_msg_header *)dr;
@@ -1948,6 +1949,177 @@ adhocl_ext_unpack_protocol_set(struct ofp_header *src, size_t *len, struct ofl_m
 
     /* 7️⃣ 返回成功 */
     return 0;
+}
+
+
+static ofl_err
+adhocl_ext_unpack_stainfo(struct ofp_header *src, size_t *len, struct ofl_msg_header **msg)
+{
+    struct adhocp_ext_stainfo *sr; // source (wire format)
+    struct adhocl_ext_stainfo *dr; // destination (decoded)
+
+    // 1️⃣ 长度检查
+    if (*len < sizeof(struct adhocp_ext_stainfo))
+    {
+        OFL_LOG_WARN(LOG_MODULE,
+                     "Received adhoc_ext_stainfo message has invalid length (%zu).", *len);
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 2️⃣ 更新剩余长度
+    *len -= sizeof(struct adhocp_ext_stainfo);
+
+    // 3️⃣ 指向输入缓冲区
+    sr = (struct adhocp_ext_stainfo *)src;
+
+    // 4️⃣ 分配目标结构体内存（并清零）
+    dr = (struct adhocl_ext_stainfo *)calloc(1, sizeof(struct adhocl_ext_stainfo));
+    if (dr == NULL)
+    {
+        OFL_LOG_WARN(LOG_MODULE, "Failed to allocate memory for adhocl_ext_stainfo.");
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 5️⃣ 网络字节序 -> 主机字节序转换
+    // dr->header.type = sr->header.type; // 一般为 uint8_t，无需字节序转换
+    dr->vendor = ntohl(sr->vendor);   // 32-bit
+    dr->subtype = ntohl(sr->subtype); // 32-bit
+    dr->ip_address = ntohl(sr->ip_address);
+    dr->mac_address = ntoh64(sr->mac_address);
+    dr->port_number = ntohl(sr->port_number);
+
+    memset(dr->pad, 0x00, sizeof(dr->pad)); // 清零填充字节
+    // 6️⃣ 输出结构体
+    *msg = (struct ofl_msg_header *)dr;
+
+    return 0;
+}
+
+static ofl_err
+adhocl_ext_unpack_test(struct ofp_header *src, size_t *len, struct ofl_msg_header **msg)
+{
+    struct adhocp_ext_test *sr; // source (wire format)
+    struct adhocl_ext_test *dr; // destination (decoded)
+
+    // 1️⃣ 长度检查
+    if (*len < sizeof(struct adhocp_ext_test))
+    {
+        OFL_LOG_WARN(LOG_MODULE,
+                     "Received adhoc_ext_test message has invalid length (%zu).", *len);
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 2️⃣ 更新剩余长度
+    *len -= sizeof(struct adhocp_ext_test);
+
+    // 3️⃣ 指向输入缓冲区
+    sr = (struct adhocp_ext_test *)src;
+
+    // 4️⃣ 分配目标结构体内存（并清零）
+    dr = (struct adhocl_ext_test *)calloc(1, sizeof(struct adhocl_ext_test));
+    if (dr == NULL)
+    {
+        OFL_LOG_WARN(LOG_MODULE, "Failed to allocate memory for adhocl_ext_test.");
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 5️⃣ 网络字节序 -> 主机字节序转换
+    // dr->header.type = sr->header.type; // 一般为 uint8_t，无需字节序转换
+    dr->vendor = ntohl(sr->vendor);   // 32-bit
+    dr->subtype = ntohl(sr->subtype); // 32-bit
+    dr->ip_address = ntohl(sr->ip_address);
+    dr->p1 = ntohl(sr->p1);
+    dr->p2 = ntohl(sr->p2);
+    dr->p3 = ntohl(sr->p3);
+    dr->p4 = ntohl(sr->p4);
+    dr->p5 = ntohl(sr->p5);
+    // 6️⃣ 输出结构体
+    *msg = (struct ofl_msg_header *)dr;
+
+    return 0;
+}
+//组网模式切换
+static ofl_err
+adhocl_ext_unpack_changelogical(struct ofp_header *src, size_t *len, struct ofl_msg_header **msg)
+{
+    struct adhocp_ext_changelogical *sr; // source (wire format)
+    struct adhocl_ext_changelogical *dr; // destination (decoded)
+
+    // 1️⃣ 长度检查
+    if (*len < sizeof(struct adhocp_ext_changelogical))
+    {
+        OFL_LOG_WARN(LOG_MODULE,
+                     "Received adhoc_ext_protocol_changelogical message has invalid length (%zu).", *len);
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 2️⃣ 更新剩余长度
+    *len -= sizeof(struct adhocp_ext_changelogical);
+
+    // 3️⃣ 指向输入缓冲区
+    sr = (struct adhocp_ext_changelogical *)src;
+
+    // 4️⃣ 分配目标结构体内存（并清零）
+    dr = (struct adhocl_ext_changelogical *)calloc(1, sizeof(struct adhocl_ext_changelogical));
+    if (dr == NULL)
+    {
+        OFL_LOG_WARN(LOG_MODULE, "Failed to allocate memory for adhocl_ext_protocol_config_request.");
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 5️⃣ 网络字节序 -> 主机字节序转换
+    // dr->header.type = sr->header.type; // 一般为 uint8_t，无需字节序转换
+    dr->vendor = ntohl(sr->vendor);   // 32-bit
+    dr->subtype = ntohl(sr->subtype); // 32-bit
+    dr->op = ntohl(sr->op);
+    dr->ip_address = ntohl(sr->ip_address);
+    // 6️⃣ 输出结构体
+    *msg = (struct ofl_msg_header *)dr;
+
+    return 0;
+}
+
+static ofl_err
+adhocl_ext_unpack_node_status_report(struct ofp_header *src, size_t *len, struct ofl_msg_header **msg)
+{
+    struct adhocp_ext_node_status_report *sr; // source (wire format)
+    struct adhocl_ext_node_status_report *dr; // destination (decoded)
+
+    // 长度检查
+    if (*len < sizeof(struct adhocp_ext_node_status_report))
+    {
+        OFL_LOG_WARN(LOG_MODULE,
+                     "Received adhoc_ext_node_status_report message has invalid length (%zu).", *len);
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 更新剩余长度
+    *len -= sizeof(struct adhocp_ext_node_status_report);
+
+    // 指向输入缓冲区
+    sr = (struct adhocp_ext_node_status_report *)src;
+
+    // 分配目标结构体内存（并清零）
+    dr = (struct adhocl_ext_node_status_report *)calloc(1, sizeof(struct adhocl_ext_node_status_report));
+    if (dr == NULL)
+    {
+        OFL_LOG_WARN(LOG_MODULE, "Failed to allocate memory for adhocl_ext_node_status_report.");
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 网络字节序 -> 主机字节序转换
+    // dr->header.type = sr->header.type; // 一般为 uint8_t，无需字节序转换
+    dr->vendor = ntohl(sr->vendor);   // 32-bit
+    dr->subtype = ntohl(sr->subtype); // 32-bit
+    dr->ip_address = ntohl(sr->ip_address);
+    dr->x = ntohf(sr->x);
+    dr->y = ntohf(sr->y);
+    dr->z = ntohf(sr->z);
+    // 输出结构体
+    *msg = (struct ofl_msg_header *)dr;
+
+    return 0;
+
 }
 
 ///--------------------------------
@@ -2094,7 +2266,7 @@ ofl_msg_unpack(uint8_t *buf, size_t buf_len, struct ofl_msg_header **msg, uint32
     case OFPT_METER_MOD:
         error = ofl_msg_unpack_meter_mod(oh, &len, msg);
         break;
-        // 我自定义的unpack==============================
+    // 我自定义的unpack==============================
     case ADHOC_EXT_PROTOCOL_CONFIG_REQUEST:
     {
         error = adhocl_ext_unpack_protocol_config_request(oh, &len, msg);
@@ -2112,8 +2284,27 @@ ofl_msg_unpack(uint8_t *buf, size_t buf_len, struct ofl_msg_header **msg, uint32
         error = adhocl_ext_unpack_protocol_set(oh, &len, msg);
         break;
     }
-
-    //========================================
+    case ADHOC_EXT_STAINFO:
+    {
+        error = adhocl_ext_unpack_stainfo(oh, &len, msg);
+        break;
+    }
+    case ADHOC_EXT_TEST:
+    {
+        error = adhocl_ext_unpack_test(oh, &len, msg);
+        break;
+    }
+    case ADHOC_EXT_CHANGELOGICAL:
+    {
+        error = adhocl_ext_unpack_changelogical(oh, &len, msg);
+        break;
+    }
+    case ADHOC_EXT_NODE_STATUS_REPORT:
+    {
+        error = adhocl_ext_unpack_node_status_report(oh,&len,msg);
+        break;
+    }
+    //==========================================================
     default:
     {
         error = ofl_error(OFPET_BAD_REQUEST, OFPGMFC_BAD_TYPE);

@@ -117,6 +117,35 @@ ntoh64(uint64_t n) {
     return (((uint64_t)ntohl(n)) << 32) + ntohl(n >> 32);
 #endif
 }
+//zi ding yi
+static inline uint32_t
+htonf(float f)
+{
+#if __BYTE_ORDER == __BIG_ENDIAN
+    uint32_t n;
+    memcpy(&n, &f, sizeof(n));
+    return n;
+#else
+    uint32_t n;
+    memcpy(&n, &f, sizeof(n));
+    return htonl(n);
+#endif
+}
+
+static inline float
+ntohf(uint32_t n)
+{
+#if __BYTE_ORDER == __BIG_ENDIAN
+    float f;
+    memcpy(&f, &n, sizeof(f));
+    return f;
+#else
+    uint32_t host = ntohl(n);
+    float f;
+    memcpy(&f, &host, sizeof(f));
+    return f;
+#endif
+}
 
 
 #endif /* OFL_UTILS_H */

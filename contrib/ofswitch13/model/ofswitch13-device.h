@@ -29,7 +29,9 @@
 #include <ns3/traced-value.h>
 #include "ofswitch13-interface.h"
 #include "ofswitch13-socket-handler.h"
-
+//--------------------------------------
+#include "ns3/ap-app-module.h"
+#include "ns3/adhoc-wifi-mac.h"
 namespace ns3 {
 
 class OFSwitch13Port;
@@ -222,6 +224,13 @@ public:
    */
   Ptr<OFSwitch13Port> GetSwitchPort (uint32_t no) const;
 
+  //---------------自定义函数--------------------------------
+  /*
+  用于train里面schedule调用来获取sta信息
+  */
+  void GetApStaMessages();
+  void Changelogical(uint32_t op);
+  void SendPosition();
   /**
    * Called when a packet is received on one of the switch's ports. This method
    * will schedule the packet for OpenFlow pipeline.

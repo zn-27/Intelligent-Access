@@ -1,0 +1,26 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8 -*-
+
+def build(bld):
+    # 1. 创建自定义模块：名称为 ap-protocol-info，依赖所需模块
+    module = bld.create_ns3_module(
+        'ap-app', 
+        ['core', 'network', 'internet', 'wifi', 'applications', 'ofswitch13'] 
+    )
+    module.includes = '.'
+    
+    # 2. 配置模块的源文件（.cc 实现文件）
+    module.source = [
+        'model/ap-protocol-info-app.cc',
+    ]
+
+    # 3. 用 ns3header 特性配置头文件（标准接口）
+    headers = bld(features='ns3header')
+    headers.module = 'ap-app'  # 绑定到当前模块
+    headers.source = [
+        'model/ap-protocol-info-app.h',  # 头文件路径
+    ]
+    if bld.env['ENABLE_EXAMPLES']:
+        bld.recurse('examples')
+
+    # 4. 生成 Python 绑定
+    bld.ns3_python_bindings()
