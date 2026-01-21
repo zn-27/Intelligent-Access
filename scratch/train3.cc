@@ -11,7 +11,7 @@
  * -
  * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
  */
-
+// AODV (反应式)	OLSR (主动式)
 #include <ns3/core-module.h>
 #include <ns3/network-module.h>
 #include <ns3/csma-module.h>
@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 {
     std::map<std::string, double> pingRttAvg;
 
-    uint16_t simTime = 20;
+    uint16_t simTime = 15;
     bool verbose = true;
     bool trace = false;
 
@@ -193,9 +193,10 @@ int main(int argc, char *argv[])
 
     // 有线链路配置
     CsmaHelper csma;
-    csma.SetChannelAttribute("DataRate", DataRateValue(DataRate("10Mbps")));
-    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
-
+    csma.SetChannelAttribute("DataRate", DataRateValue(DataRate("1000Mbps")));
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(1)));
+    // 在 csma.Install 之前设置
+    csma.SetQueue("ns3::DropTailQueue", "MaxSize", StringValue("1000p"));
     NetDeviceContainer apCsmaDevsA, apCsmaDevsB, apCsmaDevsC;    // AP设备有线接口
     NetDeviceContainer sw1Devsports, sw2Devsports, sw3Devsports; // 交换机端口设备
 
@@ -228,9 +229,10 @@ int main(int argc, char *argv[])
     // 交换机之间三角连接配置
     // --------------------------
     CsmaHelper csmaSwitch; // 交换机互连链路配置
-    csmaSwitch.SetChannelAttribute("DataRate", DataRateValue(DataRate("100Mbps")));
-    csmaSwitch.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
-
+    csmaSwitch.SetChannelAttribute("DataRate", DataRateValue(DataRate("1000Mbps")));
+    csmaSwitch.SetChannelAttribute("Delay", TimeValue(MilliSeconds(1)));
+    // 在 csma.Install 之前设置
+    csmaSwitch.SetQueue("ns3::DropTailQueue", "MaxSize", StringValue("1000p"));
     // sw1 与 sw2 连接
     {
         NodeContainer pair(sw1, sw2);
@@ -258,7 +260,16 @@ int main(int argc, char *argv[])
     // wifi配置部分
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
     WifiHelper wifi;
-    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager");
+    // 1. 设置 WiFi 标准为 802.11n (HT) 或 802.11ac (VHT)
+    Config::SetDefault("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue("OfdmRate24Mbps"));
+
+    // 2. 在 wifiHelper 中指定使用更快的模式
+    wifi.SetStandard(WIFI_STANDARD_80211n_5GHZ);
+    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager",
+                                 "DataMode", StringValue("HtMcs7"),
+                                 "ControlMode", StringValue("HtMcs0"));
+    // wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager");
+    wifi.SetRemoteStationManager("ns3::MinstrelHtWifiManager");
     WifiMacHelper mac; // 逻辑可复用
 
     // A域
@@ -596,51 +607,51 @@ int main(int argc, char *argv[])
     }
 
     // 应用层udp发送
-    uint16_t port0 = 9;
-    uint16_t port1 = 10;
-    uint16_t port2 = 11;
+    // uint16_t port0 = 9;
+    // uint16_t port1 = 10;
+    // uint16_t port2 = 11;
     uint16_t port3 = 12;
 
-    // --- Flow0: StaA[1] -> StaC[2] ---
-    OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("1Mbps")); // 原1Mbps
-    onoff0.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
-    onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow0: StaA[1] -> StaC[2] ---
+    // OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
+    // onoff0.SetAttribute("DataRate", StringValue("2Mbps")); // 原1Mbps
+    // onoff0.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
+    // onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    // 设置目标地址
-    InetSocketAddress dst0(ifC.GetAddress(2), port0);
-    onoff0.SetAttribute("Remote", AddressValue(dst0));
+    // // 设置目标地址
+    // InetSocketAddress dst0(ifC.GetAddress(2), port0);
+    // onoff0.SetAttribute("Remote", AddressValue(dst0));
 
-    ApplicationContainer app0 = onoff0.Install(StaA.Get(1));
+    // ApplicationContainer app0 = onoff0.Install(StaA.Get(1));
 
-    // --- Flow1: StaA[3] -> StaB[1] ---
-    OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("1Mbps"));
-    onoff1.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff1.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
-    onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow1: StaA[3] -> StaB[1] ---
+    // OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
+    // onoff1.SetAttribute("DataRate", StringValue("2Mbps"));
+    // onoff1.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff1.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
+    // onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst1(ifB.GetAddress(1), port1);
-    onoff1.SetAttribute("Remote", AddressValue(dst1));
+    // InetSocketAddress dst1(ifB.GetAddress(1), port1);
+    // onoff1.SetAttribute("Remote", AddressValue(dst1));
 
-    ApplicationContainer app1 = onoff1.Install(StaA.Get(3));
+    // ApplicationContainer app1 = onoff1.Install(StaA.Get(3));
 
-    // --- Flow2: StaB[0] -> StaC[1] ---
-    OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
-    onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
-    onoff2.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff2.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
-    onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow2: StaB[0] -> StaC[1] ---
+    // OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
+    // onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
+    // onoff2.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff2.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
+    // onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst2(ifC.GetAddress(1), port2);
-    onoff2.SetAttribute("Remote", AddressValue(dst2));
+    // InetSocketAddress dst2(ifC.GetAddress(1), port2);
+    // onoff2.SetAttribute("Remote", AddressValue(dst2));
 
-    ApplicationContainer app2 = onoff2.Install(StaB.Get(0));
+    // ApplicationContainer app2 = onoff2.Install(StaB.Get(0));
 
     // --- Flow3: StaC[0] -> StaC[2] ---
     OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
-    onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff3.SetAttribute("DataRate", StringValue("20Mbps"));
     onoff3.SetAttribute("PacketSize", UintegerValue(1024));
     onoff3.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));

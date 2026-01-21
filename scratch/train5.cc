@@ -5,10 +5,9 @@
  * - 域 A: hostsA (2 主机) -- sw1
  * - 域 B: hostsB (2 主机) -- sw2
  * - 域 C: 3个WiFi终端 + 1个AP -- sw3
- * - 交换机 sw1 与 sw2 直接连接，sw2 与 sw3 直接连接，sw3 与 sw1 直接连接（三角互连）
+ * - 路由器节点(routerNode1)连接 sw1、sw2和sw3（配置三个子网IP）
  * - 单 OpenFlow 控制器管理 sw1 和 sw2 和 sw3
- * - 为所有 AP 分配 IP 并注册到控制器
- * -
+ *
  * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
  */
 
@@ -185,10 +184,13 @@ int main(int argc, char *argv[])
     wifiStaNodes.Add(StaB);
     wifiStaNodes.Add(StaC);
 
-    // 网络设备节点：3台交换机、1台控制器
+    // 网络设备节点：3台交换机、1台路由器、1台控制器
     Ptr<Node> sw1 = CreateObject<Node>();
     Ptr<Node> sw2 = CreateObject<Node>();
     Ptr<Node> sw3 = CreateObject<Node>();
+    Ptr<Node> sw4 = CreateObject<Node>();
+    Ptr<Node> routerNode1 = CreateObject<Node>();
+    // Ptr<Node> routerNode2 = CreateObject<Node>();
     Ptr<Node> controllerNode = CreateObject<Node>();
 
     // 有线链路配置
@@ -198,6 +200,7 @@ int main(int argc, char *argv[])
 
     NetDeviceContainer apCsmaDevsA, apCsmaDevsB, apCsmaDevsC;    // AP设备有线接口
     NetDeviceContainer sw1Devsports, sw2Devsports, sw3Devsports; // 交换机端口设备
+    NetDeviceContainer routerDevsA, routerDevsB, routerDevsC;    // 路由器接口设备
 
     // 连接域 A 主机到 sw1
     // 遍历每个 AP 都连接交换机
@@ -224,40 +227,31 @@ int main(int argc, char *argv[])
         sw3Devsports.Add(link.Get(1));
     }
 
-    // --------------------------
-    // 交换机之间三角连接配置
-    // --------------------------
-    CsmaHelper csmaSwitch; // 交换机互连链路配置
-    csmaSwitch.SetChannelAttribute("DataRate", DataRateValue(DataRate("100Mbps")));
-    csmaSwitch.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
-
-    // sw1 与 sw2 连接
+    // 连接路由器到 sw1（域 A 网络）
     {
-        NodeContainer pair(sw1, sw2);
-        NetDeviceContainer link = csmaSwitch.Install(pair);
-        sw1Devsports.Add(link.Get(0));
-        sw2Devsports.Add(link.Get(1));
+        NodeContainer pair(routerNode1, sw1);
+        NetDeviceContainer link = csma.Install(pair);
+        routerDevsA.Add(link.Get(0));  // 路由器侧设备
+        sw1Devsports.Add(link.Get(1)); // sw1新增端口
     }
-
-    // sw2 与 sw3 连接（新增）
+    // 连接路由器到 sw2（域 B 网络）
     {
-        NodeContainer pair(sw2, sw3);
-        NetDeviceContainer link = csmaSwitch.Install(pair);
-        sw2Devsports.Add(link.Get(0));
-        sw3Devsports.Add(link.Get(1));
+        NodeContainer pair(routerNode1, sw2);
+        NetDeviceContainer link = csma.Install(pair);
+        routerDevsB.Add(link.Get(0));  // 路由器在 B 网络的接口
+        sw2Devsports.Add(link.Get(1)); // sw2新增端口
     }
-
-    // sw3 与 sw1 连接（新增）
+    // 连接路由器到 sw3（域 C 网络）
     {
-        NodeContainer pair(sw3, sw1);
-        NetDeviceContainer link = csmaSwitch.Install(pair);
-        sw3Devsports.Add(link.Get(0));
-        sw1Devsports.Add(link.Get(1));
+        NodeContainer pair(routerNode1, sw3);
+        NetDeviceContainer link = csma.Install(pair);
+        routerDevsC.Add(link.Get(0));  // 路由器在 C 网络的接口
+        sw3Devsports.Add(link.Get(1)); // sw3新增端口
     }
+    csma.EnablePcapAll("csma-trace", true);
 
     // wifi配置部分
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
-
     WifiHelper wifi;
     wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager");
     WifiMacHelper mac; // 逻辑可复用
@@ -270,8 +264,7 @@ int main(int argc, char *argv[])
     Ssid ssidA = Ssid("A");
 
     mac.SetType("ns3::StaWifiMac",
-                "Ssid", SsidValue(ssidA),
-                "ActiveProbing", BooleanValue(false)); // 关闭STA主动探测接口，STA无法直接通信
+                "Ssid", SsidValue(ssidA));
     NetDeviceContainer staWifiDevsA = wifi.Install(phyA, mac, StaA);
 
     mac.SetType("ns3::ApWifiMac",
@@ -295,8 +288,7 @@ int main(int argc, char *argv[])
     Ssid ssidB = Ssid("B");
 
     mac.SetType("ns3::StaWifiMac",
-                "Ssid", SsidValue(ssidB),
-                "ActiveProbing", BooleanValue(false));
+                "Ssid", SsidValue(ssidB));
     NetDeviceContainer staWifiDevsB = wifi.Install(phyB, mac, StaB);
 
     mac.SetType("ns3::ApWifiMac",
@@ -311,15 +303,8 @@ int main(int argc, char *argv[])
     Ssid ssidC = Ssid("C");
 
     mac.SetType("ns3::StaWifiMac",
-                "Ssid", SsidValue(ssidC),
-                "ActiveProbing", BooleanValue(true));
+                "Ssid", SsidValue(ssidC));
     NetDeviceContainer staWifiDevsC = wifi.Install(phyC, mac, StaC);
-
-    Ssid ssidC_sub = Ssid("C_sub");
-
-    mac.SetType("ns3::ApWifiMac",
-                "Ssid", SsidValue(ssidC_sub));
-    NetDeviceContainer apOnStaDevsC = wifi.Install(phyC, mac, StaC);
 
     mac.SetType("ns3::ApWifiMac",
                 "Ssid", SsidValue(ssidC));
@@ -349,6 +334,12 @@ int main(int argc, char *argv[])
     posController->Add(Vector(0, 0, 0)); // 单个节点直接 Add
     mobility.SetPositionAllocator(posController);
     mobility.Install(controllerNode);
+
+    // 核心路由器位置
+    Ptr<ListPositionAllocator> posRouter = CreateObject<ListPositionAllocator>();
+    posRouter->Add(Vector(0, 100, 0));
+    mobility.SetPositionAllocator(posRouter);
+    mobility.Install(routerNode1);
 
     // 交换机
     Ptr<ListPositionAllocator> swPos = CreateObject<ListPositionAllocator>();
@@ -453,124 +444,92 @@ int main(int argc, char *argv[])
     list.Add(staticRoutingHelper, 100);
     stack2.SetRoutingHelper(list); // 对于 AdHoc 节点使用 AODV
     stack2.Install(wifiStaNodes);
+    stack.Install(routerNode1); // 路由器安装基础协议栈
 
-    // 为AP节点安装协议栈（AP作为网关需要IP协议栈）
-    stack.Install(ApA);
-    stack.Install(ApB);
-    stack.Install(ApC);
-
-    // 为AP启用IP转发（AP作为网关需要转发功能）
-    for (uint32_t i = 0; i < ApA.GetN(); ++i)
+    for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i)
     {
-        Ptr<Ipv4> ipv4 = ApA.Get(i)->GetObject<Ipv4>();
-        ipv4->SetAttribute("IpForward", BooleanValue(true));
+        Ptr<Ipv4> ipv4 = wifiStaNodes.Get(i)->GetObject<Ipv4>();
+        ipv4->SetAttribute("IpForward", BooleanValue(true)); // 启用转发
     }
-    Ptr<Ipv4> ipv4ApB = ApB.Get(0)->GetObject<Ipv4>();
-    ipv4ApB->SetAttribute("IpForward", BooleanValue(true));
-    Ptr<Ipv4> ipv4ApC = ApC.Get(0)->GetObject<Ipv4>();
-    ipv4ApC->SetAttribute("IpForward", BooleanValue(true));
 
     // 分配IPv4地址
     Ipv4AddressHelper ipv4;
 
-    Ipv4InterfaceContainer ifA, ifApA; // 域A主机和路由器接口
+    Ipv4InterfaceContainer ifA; // 域A主机和路由器接口
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     // 给 A域 设备和 routerDevsA 分配地址
     {
         NetDeviceContainer netA = NetDeviceContainer();
-        // 先为主机分配地址（10.1.1.1-10.1.1.4）
+        // 主机先分配
         for (uint32_t i = 0; i < staWifiDevsA.GetN(); ++i)
             netA.Add(staWifiDevsA.Get(i));
+        // 为A域配置路由器接口
+        for (uint32_t i = 0; i < routerDevsA.GetN(); ++i)
+            netA.Add(routerDevsA.Get(i));
         ifA = ipv4.Assign(netA);
-        // 为AP分配地址（10.1.1.5-10.1.1.6）
-        ifApA = ipv4.Assign(apCsmaDevsA);
     }
 
-    Ipv4InterfaceContainer ifB, ifApB;
+    Ipv4InterfaceContainer ifB;
     ipv4.SetBase("10.2.1.0", "255.255.255.0");
     {
         NetDeviceContainer netB = NetDeviceContainer();
-        // 先为主机分配地址（10.2.1.1-10.2.1.2）
         for (uint32_t i = 0; i < staWifiDevsB.GetN(); ++i)
             netB.Add(staWifiDevsB.Get(i));
+        for (uint32_t i = 0; i < routerDevsB.GetN(); ++i)
+            netB.Add(routerDevsB.Get(i));
         ifB = ipv4.Assign(netB);
-        // 为AP分配地址（10.2.1.3）
-        ifApB = ipv4.Assign(apCsmaDevsB);
     }
 
-    Ipv4InterfaceContainer ifC, ifApC;
+    Ipv4InterfaceContainer ifC;
     ipv4.SetBase("10.3.1.0", "255.255.255.0");
     {
         NetDeviceContainer netC = NetDeviceContainer();
-        // 先为主机分配地址（10.3.1.1-10.3.1.3）
+        // 先配置主机
         for (uint32_t i = 0; i < staWifiDevsC.GetN(); ++i)
             netC.Add(staWifiDevsC.Get(i));
-        // 添加Adhoc接口（10.3.1.4-10.3.1.6）
+
+        // 为C域配置路由器接口
+        for (uint32_t i = 0; i < routerDevsC.GetN(); ++i)
+            netC.Add(routerDevsC.Get(i));
         for (uint32_t i = 0; i < adhocDevsC.GetN(); ++i)
-            netC.Add(adhocDevsC.Get(i));
-        // 地址需要变动？待定
-        for (uint32_t i = 0; i < apOnStaDevsC.GetN(); ++i)
-            netC.Add(apOnStaDevsC.Get(i));
+            netC.Add(adhocDevsC.Get(i)); // AdHoc 接口
         ifC = ipv4.Assign(netC);
-        // 为AP分配地址（10.3.1.7）
-        ifApC = ipv4.Assign(apCsmaDevsC);
     } // wifi 网络
 
-    // 配置主机默认路由指向本域AP
-    // 域A主机默认路由（指向AP的IP，这里用第一个AP作为主网关）
-    Ipv4Address apAGateway = ifApA.GetAddress(0); // 10.1.1.5
+    ///----------------------------------------///
+    // 路由器的 IP 地址配置
+    Ipv4Address routerA = ifA.GetAddress(staWifiDevsA.GetN()); // 路由器A的地址
+    Ipv4Address routerB = ifB.GetAddress(staWifiDevsB.GetN());
+    Ipv4Address routerC = ifC.GetAddress(staWifiDevsC.GetN());
+
+    // 为 A 网络的主机设置默认路由到路由器
     for (uint32_t i = 0; i < StaA.GetN(); ++i)
     {
         Ptr<Node> h = StaA.Get(i);
         Ptr<Ipv4> ipv4h = h->GetObject<Ipv4>();
         Ptr<Ipv4StaticRouting> staticRouting = staticRoutingHelper.GetStaticRouting(ipv4h);
-        staticRouting->SetDefaultRoute(apAGateway, 1);
+        staticRouting->SetDefaultRoute(routerA, 1);
     }
 
-    // 域B主机默认路由（指向域B AP的IP：10.2.1.3）
-    Ipv4Address apBGateway = ifApB.GetAddress(0);
+    // 为 B 网络的主机设置默认路由到路由器 B
     for (uint32_t i = 0; i < StaB.GetN(); ++i)
     {
         Ptr<Node> h = StaB.Get(i);
         Ptr<Ipv4> ipv4h = h->GetObject<Ipv4>();
         Ptr<Ipv4StaticRouting> staticRouting = staticRoutingHelper.GetStaticRouting(ipv4h);
-        staticRouting->SetDefaultRoute(apBGateway, 1);
+        staticRouting->SetDefaultRoute(routerB, 1);
     }
 
-    // 域C主机默认路由（指向域C AP的IP：10.3.1.4）
-    Ipv4Address apCGateway = ifApC.GetAddress(0);
+    // 为 C 网络的主机设置默认路由到路由器 C
     for (uint32_t i = 0; i < StaC.GetN(); ++i)
     {
         Ptr<Node> h = StaC.Get(i);
         Ptr<Ipv4> ipv4h = h->GetObject<Ipv4>();
         Ptr<Ipv4StaticRouting> staticRouting = staticRoutingHelper.GetStaticRouting(ipv4h);
-        staticRouting->SetDefaultRoute(apCGateway, 1);
+        staticRouting->SetDefaultRoute(routerC, 1);
     }
-
-    // ------------------ NetAnim 可视化 ------------------
-    AnimationInterface anim("sdn_three_domain.xml");
-
-    // 设置节点大小、颜色和描述
-    for (uint32_t i = 0; i < NodeList::GetNNodes(); ++i)
-    {
-        anim.UpdateNodeSize(i, 15.0, 15.0);
-    }
-
-    // 可以给 AP 和 STA 设置颜色区分
-    for (uint32_t i = 0; i < StaA.GetN(); ++i)
-        anim.UpdateNodeColor(StaA.Get(i), 0, 0, 255); // 蓝 STA
-    anim.UpdateNodeColor(ApA.Get(0), 255, 0, 0);      // 红 AP
-
-    for (uint32_t i = 0; i < StaB.GetN(); ++i)
-        anim.UpdateNodeColor(StaB.Get(i), 0, 255, 0); // 绿 STA
-    anim.UpdateNodeColor(ApB.Get(0), 255, 165, 0);    // 橙 AP
-
-    for (uint32_t i = 0; i < StaC.GetN(); ++i)
-        anim.UpdateNodeColor(StaC.Get(i), 255, 255, 0); // 黄 STA
-    anim.UpdateNodeColor(ApC.Get(0), 128, 0, 128);      // 紫 AP
 
     // 打印输出
-
     for (uint32_t i = 0; i < StaA.GetN(); ++i)
     {
         Ptr<Ipv4> ipv4h = StaA.Get(i)->GetObject<Ipv4>();
@@ -590,14 +549,6 @@ int main(int argc, char *argv[])
     for (uint32_t i = 0; i < sw1Devsports.GetN(); ++i)
         std::cout << "Port " << i << ": " << sw1Devsports.Get(i)->GetAddress() << std::endl;
 
-    std::cout << "sw2 ports: " << sw2Devsports.GetN() << std::endl;
-    for (uint32_t i = 0; i < sw2Devsports.GetN(); ++i)
-        std::cout << "Port " << i << ": " << sw2Devsports.Get(i)->GetAddress() << std::endl;
-
-    std::cout << "sw3 ports: " << sw3Devsports.GetN() << std::endl;
-    for (uint32_t i = 0; i < sw3Devsports.GetN(); ++i)
-        std::cout << "Port " << i << ": " << sw3Devsports.Get(i)->GetAddress() << std::endl;
-
     // 启用pcap追踪
     if (true)
     {
@@ -613,55 +564,52 @@ int main(int argc, char *argv[])
         of13Helper->EnableOpenFlowPcap("openflow-interdomain");
         of13Helper->EnableDatapathStats("switch-stats");
 
-        // 交换机端口抓包（包括互连端口）
-        csmaSwitch.EnablePcap("sw1", sw1Devsports, true);
-        csmaSwitch.EnablePcap("sw2", sw2Devsports, true);
-        csmaSwitch.EnablePcap("sw3", sw3Devsports, true);
+        csma.EnablePcap("sw1", sw1Devsports, true);
+        csma.EnablePcap("sw2", sw2Devsports, true);
 
-        // A/B/C 域 AP 的 CSMA 接口抓包
-        csma.EnablePcap("A_domain_ap", apCsmaDevsA);
-        csma.EnablePcap("B_domain_ap", apCsmaDevsB);
-        csma.EnablePcap("C_domain_ap", apCsmaDevsC);
+        // A/B 域 AP 的 CSMA 接口
+        csma.EnablePcap("A_domain", apCsmaDevsA);
+        csma.EnablePcap("B_domain", apCsmaDevsB);
     }
 
     // 无线终端静态主机路由配置
-    // for (uint32_t i = 0;i < StaA.GetN();i++)
-    //{
-    //     Ipv4StaticRoutingHelper staticRoutingHelper2;
-    //     Ptr<Ipv4> ipv42 = StaA.Get(i)->GetObject<Ipv4>();
-    //     Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
-    //     //添加到域A其他节点的主机路由
-    //     s->AddHostRouteTo(ifA.GetAddress(0), 1);
-    //     s->AddHostRouteTo(ifA.GetAddress(1), 1);
-    //     s->AddHostRouteTo(ifA.GetAddress(2), 1);
-    //     s->AddHostRouteTo(ifA.GetAddress(3), 1);
-    //     //s->AddHostRouteTo(ifA.GetAddress(i + 4), 0);
-    // }
+    for (uint32_t i = 0; i < StaA.GetN(); i++)
+    {
+        Ipv4StaticRoutingHelper staticRoutingHelper2;
+        Ptr<Ipv4> ipv42 = StaA.Get(i)->GetObject<Ipv4>();
+        Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
+        // 添加到域A其他节点的主机路由
+        s->AddHostRouteTo(ifA.GetAddress(0), 1);
+        s->AddHostRouteTo(ifA.GetAddress(1), 1);
+        s->AddHostRouteTo(ifA.GetAddress(2), 1);
+        s->AddHostRouteTo(ifA.GetAddress(3), 1);
+        // s->AddHostRouteTo(ifA.GetAddress(i + 4), 0);
+    }
 
-    // for (uint32_t i = 0;i < StaB.GetN();i++)
-    //{
-    //     Ipv4StaticRoutingHelper staticRoutingHelper2;
-    //     Ptr<Ipv4> ipv42 = StaB.Get(i)->GetObject<Ipv4>();
-    //     Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
-    //     //添加到域B其他节点的主机路由
-    //     s->AddHostRouteTo(ifB.GetAddress(0), 1);
-    //     s->AddHostRouteTo(ifB.GetAddress(1), 1);
-    //     //s->AddHostRouteTo(ifB.GetAddress(i + 2), 0);
-    // }
+    for (uint32_t i = 0; i < StaB.GetN(); i++)
+    {
+        Ipv4StaticRoutingHelper staticRoutingHelper2;
+        Ptr<Ipv4> ipv42 = StaB.Get(i)->GetObject<Ipv4>();
+        Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
+        // 添加到域B其他节点的主机路由
+        s->AddHostRouteTo(ifB.GetAddress(0), 1);
+        s->AddHostRouteTo(ifB.GetAddress(1), 1);
+        // s->AddHostRouteTo(ifB.GetAddress(i + 2), 0);
+    }
 
-    // for (uint32_t i = 0; i < StaC.GetN(); i++)
-    //{
-    //     Ipv4StaticRoutingHelper staticRoutingHelper2;
-    //     Ptr<Ipv4> ipv42 = StaC.Get(i)->GetObject<Ipv4>();
-    //     Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
-    //     //添加到域C其他节点的主机路由（通过接口1）
-    //     s->AddHostRouteTo(ifC.GetAddress(0), 1);
-    //     s->AddHostRouteTo(ifC.GetAddress(1), 1);
-    //     s->AddHostRouteTo(ifC.GetAddress(2), 1);
-    //     s->AddHostRouteTo(ifC.GetAddress(3), 1);
-    //     //添加到自身地址的路由（通过接口0）
-    //     //s->AddHostRouteTo(ifC.GetAddress(i + 4), 0);
-    // }
+    for (uint32_t i = 0; i < StaC.GetN(); i++)
+    {
+        Ipv4StaticRoutingHelper staticRoutingHelper2;
+        Ptr<Ipv4> ipv42 = StaC.Get(i)->GetObject<Ipv4>();
+        Ptr<Ipv4StaticRouting> s = staticRoutingHelper2.GetStaticRouting(ipv42);
+        // 添加到域C其他节点的主机路由（通过接口1）
+        s->AddHostRouteTo(ifC.GetAddress(0), 1);
+        s->AddHostRouteTo(ifC.GetAddress(1), 1);
+        s->AddHostRouteTo(ifC.GetAddress(2), 1);
+        s->AddHostRouteTo(ifC.GetAddress(3), 1);
+        // 添加到自身地址的路由（通过接口0）
+        // s->AddHostRouteTo(ifC.GetAddress(i + 4), 0);
+    }
 
     // 应用层udp发送
     uint16_t port0 = 9;
@@ -671,7 +619,7 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("600kbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("1Mbps")); // 原1Mbps
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
     onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
     onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -684,7 +632,7 @@ int main(int argc, char *argv[])
 
     // --- Flow1: StaA[3] -> StaB[1] ---
     OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("600kbps"));
+    onoff1.SetAttribute("DataRate", StringValue("1Mbps"));
     onoff1.SetAttribute("PacketSize", UintegerValue(1024));
     onoff1.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -696,7 +644,7 @@ int main(int argc, char *argv[])
 
     // --- Flow2: StaB[0] -> StaC[1] ---
     OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
-    onoff2.SetAttribute("DataRate", StringValue("600kbps"));
+    onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
     onoff2.SetAttribute("PacketSize", UintegerValue(1024));
     onoff2.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -708,184 +656,96 @@ int main(int argc, char *argv[])
 
     // --- Flow3: StaC[0] -> StaC[2] ---
     OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
-    onoff3.SetAttribute("DataRate", StringValue("600kbps"));
+    onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
     onoff3.SetAttribute("PacketSize", UintegerValue(1024));
     onoff3.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst3(ifC.GetAddress(2), port3);
+    InetSocketAddress dst3(ifC.GetAddress(5), port3);
     onoff3.SetAttribute("Remote", AddressValue(dst3));
+
+    Ipv4Address srcIp = ifC.GetAddress(3); // device 1 的 IP
+
+    InetSocketAddress local(srcIp);
+    onoff3.SetAttribute("Local", AddressValue(local));
 
     ApplicationContainer app3 = onoff3.Install(StaC.Get(0));
 
     // adhoc接口开关（C域）
-    for (uint32_t i = 0; i < StaC.GetN(); i++)
+    // for (uint32_t i = 0; i < StaC.GetN(); i++)
+    // {
+    //     Ptr<Node> node = StaC.Get(i);
+    //     Ptr<NetDevice> dev = adhocDevsC.Get(i); // 假设每个 STA 的 AdHoc 接口索引相同
+
+    //     // 0秒时关闭adhoc接口
+    //     Simulator::Schedule(Seconds(0.0), &DisableDeviceLogical, node, dev);
+
+    //     // 第 7 秒开启
+    //     Simulator::Schedule(Seconds(7.0), &EnableDeviceLogical, node, dev); // 接口设置为3秒开启
+    // }
+
+    // 调试信息输出：MAC地址
     {
-        Ptr<Node> node = StaC.Get(i);
-        Ptr<NetDevice> dev = adhocDevsC.Get(i); // 假设每个 STA 的 AdHoc 接口索引相同
-
-        // 0秒时关闭adhoc接口
-        Simulator::Schedule(Seconds(0.0), &DisableDeviceLogical, node, dev);
-
-        // 第 7 秒开启
-        Simulator::Schedule(Seconds(3.0), &EnableDeviceLogical, node, dev); // 接口设置为3秒开启
-    }
-
-    // 调试信息输出：MAC地址和IP地址
-    {
-        std::cout << "ap mac and ip" << std::endl;
-        // 输出域A的AP设备
-        for (uint32_t i = 0; i < ApA.GetN(); ++i)
+        std::cout << "ap mac" << std::endl;
+        for (uint32_t j = 0; j < allApDevices.GetN(); ++j)
         {
-            Ptr<NetDevice> dev = apWifiDevsA.Get(i); // AP的WiFi接口
+            Ptr<NetDevice> dev = allApDevices.Get(j);
             Address addr = dev->GetAddress();
-            std::cout << "  ApA[" << i << "] WiFi接口"
+
+            std::cout << "  Device " << j
                       << " -> MAC Address: "
-                      << Mac48Address::ConvertFrom(addr);
-            // 输出IP地址
-            Ptr<Ipv4> ipv4 = ApA.Get(i)->GetObject<Ipv4>();
-            if (ipv4 && ipv4->GetNInterfaces() > 1)
-            {
-                std::cout << " -> IP Address: " << ipv4->GetAddress(1, 0).GetLocal();
-            }
-            std::cout << std::endl;
+                      << Mac48Address::ConvertFrom(addr)
+                      << std::endl;
         }
-
-        // 输出域B的AP设备
-        Ptr<NetDevice> devB = apWifiDevsB.Get(0);
-        Address addrB = devB->GetAddress();
-        std::cout << "  ApB[0] WiFi接口"
-                  << " -> MAC Address: "
-                  << Mac48Address::ConvertFrom(addrB);
-        // 输出IP地址
-        Ptr<Ipv4> ipv4B = ApB.Get(0)->GetObject<Ipv4>();
-        if (ipv4B && ipv4B->GetNInterfaces() > 1)
+        std::cout << "sta mac" << std::endl;
+        for (uint32_t j = 0; j < allStaDevices.GetN(); ++j)
         {
-            std::cout << " -> IP Address: " << ipv4B->GetAddress(1, 0).GetLocal();
-        }
-        std::cout << std::endl;
-
-        // 输出域C的AP设备
-        Ptr<NetDevice> devC = apWifiDevsC.Get(0);
-        Address addrC = devC->GetAddress();
-        std::cout << "  ApC[0] WiFi接口"
-                  << " -> MAC Address: "
-                  << Mac48Address::ConvertFrom(addrC);
-        // 输出IP地址
-        Ptr<Ipv4> ipv4C = ApC.Get(0)->GetObject<Ipv4>();
-        if (ipv4C && ipv4C->GetNInterfaces() > 1)
-        {
-            std::cout << " -> IP Address: " << ipv4C->GetAddress(1, 0).GetLocal();
-        }
-        std::cout << std::endl;
-
-        std::cout << "sta mac and ip" << std::endl;
-        // 输出域A的STA设备
-        for (uint32_t i = 0; i < StaA.GetN(); ++i)
-        {
-            Ptr<NetDevice> dev = staWifiDevsA.Get(i);
+            Ptr<NetDevice> dev = allStaDevices.Get(j);
             Address addr = dev->GetAddress();
-            std::cout << "  StaA[" << i << "] WiFi接口"
-                      << " -> MAC Address: "
-                      << Mac48Address::ConvertFrom(addr);
-            // 输出IP地址
-            Ptr<Ipv4> ipv4 = StaA.Get(i)->GetObject<Ipv4>();
-            if (ipv4 && ipv4->GetNInterfaces() > 1)
-            {
-                std::cout << " -> IP Address: " << ipv4->GetAddress(1, 0).GetLocal();
-            }
-            std::cout << std::endl;
-        }
 
-        // 输出域B的STA设备
-        for (uint32_t i = 0; i < StaB.GetN(); ++i)
+            std::cout << "  Device " << j
+                      << " -> MAC Address: "
+                      << Mac48Address::ConvertFrom(addr)
+                      << std::endl;
+        }
+        //
+        std::cout << "adhoc mac" << std::endl;
+        for (uint32_t j = 0; j < adhocDevsC.GetN(); ++j)
         {
-            Ptr<NetDevice> dev = staWifiDevsB.Get(i);
+            Ptr<NetDevice> dev = adhocDevsC.Get(j);
             Address addr = dev->GetAddress();
-            std::cout << "  StaB[" << i << "] WiFi接口"
-                      << " -> MAC Address: "
-                      << Mac48Address::ConvertFrom(addr);
-            // 输出IP地址
-            Ptr<Ipv4> ipv4 = StaB.Get(i)->GetObject<Ipv4>();
-            if (ipv4 && ipv4->GetNInterfaces() > 1)
-            {
-                std::cout << " -> IP Address: " << ipv4->GetAddress(1, 0).GetLocal();
-            }
-            std::cout << std::endl;
-        }
 
-        // 输出域C的STA设备
-        for (uint32_t i = 0; i < StaC.GetN(); ++i)
+            std::cout << "  Device " << j
+                      << " -> MAC Address: "
+                      << Mac48Address::ConvertFrom(addr)
+                      << std::endl;
+        }
+        for (uint32_t j = 0; j < routerDevsC.GetN(); ++j)
         {
-            Ptr<NetDevice> dev = staWifiDevsC.Get(i);
+            Ptr<NetDevice> dev = routerDevsC.Get(j);
             Address addr = dev->GetAddress();
-            std::cout << "  StaC[" << i << "] WiFi接口"
-                      << " -> MAC Address: "
-                      << Mac48Address::ConvertFrom(addr);
-            // 输出IP地址
-            Ptr<Ipv4> ipv4 = StaC.Get(i)->GetObject<Ipv4>();
-            if (ipv4 && ipv4->GetNInterfaces() > 1)
-            {
-                std::cout << " -> IP Address: " << ipv4->GetAddress(1, 0).GetLocal();
-            }
-            std::cout << std::endl;
-        }
 
-        std::cout << "adhoc mac and ip" << std::endl;
-        // 输出域C的Adhoc设备
-        for (uint32_t i = 0; i < StaC.GetN(); ++i)
-        {
-            Ptr<NetDevice> dev = adhocDevsC.Get(i);
-            Address addr = dev->GetAddress();
-            std::cout << "  StaC[" << i << "] Adhoc接口"
+            std::cout << "  Device " << j
                       << " -> MAC Address: "
-                      << Mac48Address::ConvertFrom(addr);
-            // 输出IP地址
-            Ptr<Ipv4> ipv4 = StaC.Get(i)->GetObject<Ipv4>();
-            if (ipv4 && ipv4->GetNInterfaces() > 2)
-            {
-                std::cout << " -> IP Address: " << ipv4->GetAddress(2, 0).GetLocal();
-            }
-            std::cout << std::endl;
+                      << Mac48Address::ConvertFrom(addr)
+                      << std::endl;
         }
-    }
-
-    // 向控制器注册网关ARP信息（核心新增功能）
-    if (controllerApp != nullptr)
-    {
-        // 域A网关（AP）ARP条目：IP -> MAC
-        for (uint32_t i = 0; i < ApA.GetN(); ++i)
-        {
-            Ipv4Address apIp = ifApA.GetAddress(i);
-            Mac48Address apMac = Mac48Address::ConvertFrom(apCsmaDevsA.Get(i)->GetAddress());
-            controllerApp->AddArpEntry(apIp, apMac);
-            std::cout << "注册ARP条目：ApA[" << i << "] 网关 " << apIp << " -> " << apMac << std::endl;
-        }
-        // 域B网关（AP）ARP条目
-        Ipv4Address apBIp = ifApB.GetAddress(0);
-        Mac48Address apBMac = Mac48Address::ConvertFrom(apCsmaDevsB.Get(0)->GetAddress());
-        controllerApp->AddArpEntry(apBIp, apBMac);
-        std::cout << "注册ARP条目：ApB[0] 网关 " << apBIp << " -> " << apBMac << std::endl;
-        // 域C网关（AP）ARP条目
-        Ipv4Address apCIp = ifApC.GetAddress(0);
-        Mac48Address apCMac = Mac48Address::ConvertFrom(apCsmaDevsC.Get(0)->GetAddress());
-        controllerApp->AddArpEntry(apCIp, apCMac);
-        std::cout << "注册ARP条目：ApC[0] 网关 " << apCIp << " -> " << apCMac << std::endl;
     }
 
     // LogComponentEnable("OFSwitch13Controller", LOG_LEVEL_DEBUG);
     // 两秒时设置控制器路由优先级
-    Simulator::Schedule(Seconds(2.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
+    // Simulator::Schedule(Seconds(2.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.1), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.3), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
     FlowMonitorHelper flowmonHelper;
 
-    // 只监控 STA 节点
+    // 只监控 STA 节点和路由器接口
     NodeContainer monitorNodes;
     monitorNodes.Add(StaA);
     monitorNodes.Add(StaB);
     monitorNodes.Add(StaC);
+    monitorNodes.Add(routerNode1);
 
     Ptr<FlowMonitor> monitor = flowmonHelper.Install(monitorNodes);
 
