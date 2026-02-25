@@ -184,7 +184,14 @@ namespace ns3
           m_qLearningEnabled(false),  // Disabled: Q-learning adds overhead without benefit for single-route AODV
           m_qAlpha(0.1),
           m_qGamma(0.9),
-          m_qEpsilon(0.0)  // No exploration needed for single-route AODV
+          m_qEpsilon(0.0),  // No exploration needed for single-route AODV
+          // Cluster management initializations
+          m_localClusterId(0),
+          m_clusterHeadAddress(Ipv4Address::GetZero()),
+          m_isClusterHead(false),
+          m_clusterMode(MODE_SELF_ORG),
+          m_rssiSwitchThreshold(-90.0),  // -90 dBm triggers cluster switch
+          m_rssiAcceptThreshold(-85.0)   // -85 dBm accepts new cluster
     {
       m_nb.SetCallback(MakeCallback(&RoutingProtocol::SendRerrWhenBreaksLinkToNextHop, this));
       InitializeQLearning();
@@ -322,6 +329,40 @@ namespace ns3
                                             MakeDoubleAccessor(&RoutingProtocol::SetQEpsilon,
                                                                &RoutingProtocol::GetQEpsilon),
                                             MakeDoubleChecker<double>(0.0, 1.0))
+                              // Cluster management attributes
+                              .AddAttribute("ClusterId",
+                                            "The cluster ID this node belongs to (0 = unassigned).",
+                                            UintegerValue(0),
+                                            MakeUintegerAccessor(&RoutingProtocol::SetLocalClusterId,
+                                                                 &RoutingProtocol::GetLocalClusterId),
+                                            MakeUintegerChecker<uint32_t>())
+                              .AddAttribute("ClusterMode",
+                                            "Cluster forwarding mode (0=Self-Org, 1=Centralized).",
+                                            EnumValue(MODE_SELF_ORG),
+                                            MakeEnumAccessor(&RoutingProtocol::SetClusterMode,
+                                                             &RoutingProtocol::GetClusterMode),
+                                            MakeEnumChecker(MODE_SELF_ORG, "MODE_SELF_ORG",
+                                                                           MODE_CENTRALIZED, "MODE_CENTRALIZED"))
+                              .AddAttribute("ClusterHead",
+                                            "IP address of the cluster head.",
+                                            Ipv4AddressValue(Ipv4Address::GetZero()),
+                                            MakeIpv4AddressAccessor(&RoutingProtocol::m_clusterHeadAddress),
+                                            MakeIpv4AddressChecker())
+                              .AddAttribute("IsClusterHead",
+                                            "Whether this node is a cluster head.",
+                                            BooleanValue(false),
+                                            MakeBooleanAccessor(&RoutingProtocol::m_isClusterHead),
+                                            MakeBooleanChecker())
+                              .AddAttribute("RssiSwitchThreshold",
+                                            "RSSI threshold (dBm) to trigger cluster switch.",
+                                            DoubleValue(-90.0),
+                                            MakeDoubleAccessor(&RoutingProtocol::m_rssiSwitchThreshold),
+                                            MakeDoubleChecker<double>())
+                              .AddAttribute("RssiAcceptThreshold",
+                                            "RSSI threshold (dBm) to accept new cluster.",
+                                            DoubleValue(-85.0),
+                                            MakeDoubleAccessor(&RoutingProtocol::m_rssiAcceptThreshold),
+                                            MakeDoubleChecker<double>())
                               .AddAttribute("UniformRv",
                                             "Access to the underlying UniformRandomVariable",
                                             StringValue("ns3::UniformRandomVariable"),
@@ -663,12 +704,82 @@ namespace ns3
       Ipv4Address origin = header.GetSource();
       m_routingTable.Purge();
       RoutingTableEntry toDst;
+
+      // ========== Cluster-based Forwarding Logic ==========
+      // Check if clustering is enabled
+      if (m_localClusterId != 0)
+      {
+        uint32_t dstClusterId = m_clusterTable.GetClusterId(dst);
+
+        // MODE_CENTRALIZED: All traffic must go through cluster head
+        if (m_clusterMode == MODE_CENTRALIZED)
+        {
+          if (!m_isClusterHead && dst != m_clusterHeadAddress)
+          {
+            NS_LOG_DEBUG("Centralized mode: forwarding to cluster head " << m_clusterHeadAddress);
+            // Route to cluster head instead
+            if (!m_routingTable.LookupRoute(m_clusterHeadAddress, toDst))
+            {
+              NS_LOG_WARN("No route to cluster head in centralized mode");
+              // Fall through to normal routing (may fail)
+            }
+            else if (toDst.GetFlag() == VALID)
+            {
+              Ptr<Ipv4Route> route = toDst.GetRoute();
+              // Check next hop is in same cluster
+              if (!IsInSameCluster(route->GetGateway()))
+              {
+                NS_LOG_WARN("Refusing to forward to different cluster node: " << route->GetGateway());
+                return false;
+              }
+              ucb(route, p, header);
+              return true;
+            }
+          }
+        }
+        // MODE_SELF_ORG: Inter-cluster traffic goes through cluster head
+        else if (m_clusterMode == MODE_SELF_ORG)
+        {
+          if (dstClusterId != 0 && dstClusterId != m_localClusterId)
+          {
+            // Inter-cluster traffic: must go via cluster head (if not cluster head ourselves)
+            if (!m_isClusterHead)
+            {
+              NS_LOG_DEBUG("Self-org mode: inter-cluster traffic via cluster head");
+              if (!m_routingTable.LookupRoute(m_clusterHeadAddress, toDst))
+              {
+                NS_LOG_WARN("No route to cluster head for inter-cluster traffic");
+              }
+              else if (toDst.GetFlag() == VALID)
+              {
+                Ptr<Ipv4Route> route = toDst.GetRoute();
+                if (!IsInSameCluster(route->GetGateway()))
+                {
+                  NS_LOG_WARN("Refusing to forward to different cluster node: " << route->GetGateway());
+                  return false;
+                }
+                ucb(route, p, header);
+                return true;
+              }
+            }
+          }
+        }
+      }
+      // ========== End Cluster-based Forwarding Logic ==========
+
       if (m_routingTable.LookupRoute(dst, toDst))
       {
         if (toDst.GetFlag() == VALID)
         {
           Ptr<Ipv4Route> route = toDst.GetRoute();
           NS_LOG_LOGIC(route->GetSource() << " forwarding to " << dst << " from " << origin << " packet " << p->GetUid());
+
+          // Cluster check: Don't forward to different cluster
+          if (m_localClusterId != 0 && !IsInSameCluster(route->GetGateway()))
+          {
+            NS_LOG_WARN("Refusing to forward to different cluster: " << route->GetGateway());
+            return false;
+          }
 
           // Q-Learning: Store context for forwarding update
           if (m_qLearningEnabled)
@@ -1239,7 +1350,24 @@ namespace ns3
       NS_LOG_DEBUG("AODV node " << this << " received a AODV packet from " << sender << " to " << receiver);
 
       UpdateRouteToNeighbor(sender, receiver);
+
+      // Cluster management: Check if sender is in the same cluster
+      // Allow RREQ (broadcast for route discovery) to pass through
+      // For other message types, verify same-cluster requirement
       TypeHeader tHeader(AODVTYPE_RREQ);
+      packet->PeekHeader(tHeader);
+
+      if (m_localClusterId != 0 &&  // Clustering is enabled
+          tHeader.Get() != AODVTYPE_RREQ &&  // Not a route request (broadcast)
+          !IsInSameCluster(sender))  // Sender not in same cluster
+      {
+        NS_LOG_WARN("Dropping AODV packet from different cluster: "
+                    << "Sender " << sender << " (Cluster " << m_clusterTable.GetClusterId(sender)
+                    << ") vs Local (Cluster " << m_localClusterId << ")");
+        return;  // Drop the packet
+      }
+
+      // Remove header now for processing
       packet->RemoveHeader(tHeader);
       if (!tHeader.IsValid())
       {
@@ -2309,6 +2437,11 @@ namespace ns3
       Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/MonitorSnifferRx",
                                     MakeCallback(&RoutingProtocol::PhyRxStats, this));
 
+      // Cluster management: Start periodic cluster check (every 1 second)
+      m_clusterCheckEvent = Simulator::Schedule(Seconds(1.0),
+                                                &RoutingProtocol::CheckClusterSwitch,
+                                                this);
+
       Ipv4RoutingProtocol::DoInitialize();
     }
 
@@ -2347,6 +2480,9 @@ namespace ns3
       {
         // Update with exponentially weighted average
         m_nb.UpdateNeighborSnr(it->m_neighborAddress, currentSnr);
+
+        // Cluster management: Update RSSI for cluster switching decisions
+        m_clusterTable.UpdateRssi(it->m_neighborAddress, signalDbm);
       }
     }
 
@@ -2629,6 +2765,303 @@ namespace ns3
     RoutingProtocol::GetQEpsilon() const
     {
       return m_qEpsilon;
+    }
+
+    // ========== Cluster Management Method Implementations ==========
+
+    void
+    RoutingProtocol::SetLocalClusterId(uint32_t clusterId)
+    {
+      NS_LOG_FUNCTION(this << clusterId);
+      uint32_t oldId = m_localClusterId;
+      m_localClusterId = clusterId;
+
+      if (clusterId != oldId && m_ipv4)
+      {
+        NS_LOG_DEBUG("Node " << m_ipv4->GetObject<Node>()->GetId()
+                      << " cluster changed: " << oldId << " -> " << clusterId);
+      }
+    }
+
+    uint32_t
+    RoutingProtocol::GetLocalClusterId() const
+    {
+      return m_localClusterId;
+    }
+
+    void
+    RoutingProtocol::SetClusterMode(ClusterMode mode)
+    {
+      NS_LOG_FUNCTION(this << mode);
+      m_clusterMode = mode;
+
+      if (m_ipv4)
+      {
+        NS_LOG_DEBUG("Node " << m_ipv4->GetObject<Node>()->GetId()
+                      << " cluster mode set to "
+                      << (mode == MODE_SELF_ORG ? "SELF_ORG" : "CENTRALIZED"));
+      }
+    }
+
+    ClusterMode
+    RoutingProtocol::GetClusterMode() const
+    {
+      return m_clusterMode;
+    }
+
+    void
+    RoutingProtocol::SetClusterHead(Ipv4Address head)
+    {
+      NS_LOG_FUNCTION(this << head);
+      m_clusterHeadAddress = head;
+
+      // Check if this node is the cluster head by comparing with all local addresses
+      m_isClusterHead = false;
+      if (m_ipv4)
+      {
+        for (uint32_t i = 0; i < m_ipv4->GetNInterfaces(); ++i)
+        {
+          for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j)
+          {
+            if (m_ipv4->GetAddress(i, j).GetLocal() == head)
+            {
+              m_isClusterHead = true;
+              break;
+            }
+          }
+          if (m_isClusterHead) break;
+        }
+      }
+
+      NS_LOG_DEBUG("Node " << (m_ipv4 ? m_ipv4->GetObject<Node>()->GetId() : -1)
+                   << (m_isClusterHead ? " is cluster head" : " cluster head is ") << head);
+    }
+
+    Ipv4Address
+    RoutingProtocol::GetClusterHeadAddress() const
+    {
+      return m_clusterHeadAddress;
+    }
+
+    bool
+    RoutingProtocol::IsClusterHead() const
+    {
+      return m_isClusterHead;
+    }
+
+    uint32_t
+    RoutingProtocol::GetClusterMemberCount() const
+    {
+      if (m_localClusterId == 0)
+      {
+        return 0;
+      }
+      return m_clusterTable.GetClusterMemberCount(m_localClusterId);
+    }
+
+    bool
+    RoutingProtocol::IsInSameCluster(Ipv4Address addr) const
+    {
+      // If clustering is not enabled (cluster ID = 0), allow all communication
+      if (m_localClusterId == 0)
+      {
+        return true;
+      }
+
+      // Check if the address is known and in the same cluster
+      uint32_t peerClusterId = m_clusterTable.GetClusterId(addr);
+
+      // If peer cluster is unknown, allow for now (will be learned)
+      if (peerClusterId == 0)
+      {
+        return true;
+      }
+
+      return (peerClusterId == m_localClusterId);
+    }
+
+    bool
+    RoutingProtocol::ShouldForwardViaClusterHead(Ipv4Address dst) const
+    {
+      // If clustering is not enabled, no need to forward via cluster head
+      if (m_localClusterId == 0)
+      {
+        return false;
+      }
+
+      // Cluster head doesn't need to forward to itself
+      if (m_isClusterHead)
+      {
+        return false;
+      }
+
+      if (m_clusterMode == MODE_CENTRALIZED)
+      {
+        // In centralized mode, all traffic goes via cluster head
+        return (dst != m_clusterHeadAddress);
+      }
+      else if (m_clusterMode == MODE_SELF_ORG)
+      {
+        // In self-org mode, only inter-cluster traffic goes via cluster head
+        uint32_t dstClusterId = m_clusterTable.GetClusterId(dst);
+        return (dstClusterId != 0 && dstClusterId != m_localClusterId);
+      }
+
+      return false;
+    }
+
+    void
+    RoutingProtocol::UpdateNeighborRssi(Ipv4Address addr, double rssi)
+    {
+      NS_LOG_DEBUG("Updating RSSI for " << addr << ": " << rssi << " dBm");
+      m_clusterTable.UpdateRssi(addr, rssi);
+    }
+
+    double
+    RoutingProtocol::GetNeighborRssi(Ipv4Address addr) const
+    {
+      return m_clusterTable.GetRssi(addr);
+    }
+
+    void
+    RoutingProtocol::SetNeighborClusterId(Ipv4Address addr, uint32_t clusterId)
+    {
+      NS_LOG_FUNCTION(this << addr << clusterId);
+      m_clusterTable.SetClusterId(addr, clusterId);
+    }
+
+    const ClusterTable&
+    RoutingProtocol::GetClusterTable() const
+    {
+      return m_clusterTable;
+    }
+
+    void
+    RoutingProtocol::CheckClusterSwitch()
+    {
+      NS_LOG_FUNCTION(this);
+
+      // If clustering is not enabled, just reschedule
+      if (m_localClusterId == 0)
+      {
+        m_clusterCheckEvent = Simulator::Schedule(Seconds(1.0),
+                                                  &RoutingProtocol::CheckClusterSwitch,
+                                                  this);
+        return;
+      }
+
+      // Get current cluster's average RSSI
+      double currentRssi = GetCurrentClusterRssi();
+
+      // Check if we should switch
+      if (currentRssi < m_rssiSwitchThreshold)
+      {
+        // Find best alternative cluster
+        double bestRssi = -100.0;
+        uint32_t bestClusterId = FindBestCluster(bestRssi);
+
+        // Switch if the new cluster is significantly better
+        if (bestClusterId != 0 &&
+            bestClusterId != m_localClusterId &&
+            bestRssi > m_rssiAcceptThreshold)
+        {
+          NS_LOG_UNCOND("Node " << (m_ipv4 ? m_ipv4->GetObject<Node>()->GetId() : -1)
+                        << " switching from Cluster " << m_localClusterId
+                        << " to Cluster " << bestClusterId
+                        << " (RSSI: " << currentRssi << " -> " << bestRssi << " dBm)");
+          PerformClusterSwitch(bestClusterId);
+        }
+      }
+
+      // Purge old entries from cluster table
+      m_clusterTable.Purge(Seconds(30.0));
+
+      // Reschedule the check
+      m_clusterCheckEvent = Simulator::Schedule(Seconds(1.0),
+                                                &RoutingProtocol::CheckClusterSwitch,
+                                                this);
+    }
+
+    void
+    RoutingProtocol::PerformClusterSwitch(uint32_t newClusterId)
+    {
+      NS_LOG_FUNCTION(this << newClusterId);
+
+      uint32_t oldClusterId = m_localClusterId;
+      m_localClusterId = newClusterId;
+
+      // Clear routing table to force new route discovery
+      m_routingTable.Clear();
+
+      // Update cluster head for new cluster (if known)
+      Ipv4Address newHead = m_clusterTable.GetClusterHeadAddress(newClusterId);
+      if (newHead != Ipv4Address::GetZero())
+      {
+        m_clusterHeadAddress = newHead;
+        m_isClusterHead = false;
+      }
+
+      NS_LOG_UNCOND("Cluster switch completed: " << oldClusterId << " -> " << newClusterId);
+    }
+
+    double
+    RoutingProtocol::GetCurrentClusterRssi() const
+    {
+      if (m_localClusterId == 0)
+      {
+        return -100.0;
+      }
+      return m_clusterTable.GetAverageRssiByCluster(m_localClusterId);
+    }
+
+    uint32_t
+    RoutingProtocol::FindBestCluster(double& bestRssi) const
+    {
+      // Find the cluster with the best average RSSI
+      // This is a simplified implementation that scans known clusters
+
+      std::map<uint32_t, double> clusterRssiMap;
+      std::map<uint32_t, uint32_t> clusterCountMap;
+
+      // Aggregate RSSI by cluster
+      for (ClusterTable::ConstIterator it = m_clusterTable.Begin();
+           it != m_clusterTable.End(); ++it)
+      {
+        uint32_t clusterId = it->second.m_clusterId;
+        if (clusterId != 0 && clusterId != m_localClusterId)
+        {
+          double rssi = it->second.m_avgRssi;
+          if (clusterRssiMap.find(clusterId) == clusterRssiMap.end())
+          {
+            clusterRssiMap[clusterId] = rssi;
+            clusterCountMap[clusterId] = 1;
+          }
+          else
+          {
+            clusterRssiMap[clusterId] += rssi;
+            clusterCountMap[clusterId]++;
+          }
+        }
+      }
+
+      // Find best cluster
+      uint32_t bestClusterId = 0;
+      bestRssi = -100.0;
+
+      for (std::map<uint32_t, double>::const_iterator it = clusterRssiMap.begin();
+           it != clusterRssiMap.end(); ++it)
+      {
+        uint32_t clusterId = it->first;
+        double avgRssi = it->second / clusterCountMap[clusterId];
+
+        if (avgRssi > bestRssi)
+        {
+          bestRssi = avgRssi;
+          bestClusterId = clusterId;
+        }
+      }
+
+      return bestClusterId;
     }
 
   } // namespace smartAodvV2

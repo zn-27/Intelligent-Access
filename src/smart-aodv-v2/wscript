@@ -11,8 +11,10 @@ def build(bld):
         'model/smart-aodv-v2-packet.cc',
         'model/smart-aodv-v2-neighbor.cc',
         'model/smart-aodv-v2-qlearning.cc',
+        'model/smart-aodv-v2-cluster.cc',
         'model/smart-aodv-v2-routing-protocol.cc',
         'helper/smart-aodv-v2-helper.cc',
+        'helper/cluster-control-app.cc',
         ]
 
     # Temporarily disable tests to focus on core module
@@ -41,8 +43,10 @@ def build(bld):
         'model/smart-aodv-v2-packet.h',
         'model/smart-aodv-v2-neighbor.h',
         'model/smart-aodv-v2-qlearning.h',
+        'model/smart-aodv-v2-cluster.h',
         'model/smart-aodv-v2-routing-protocol.h',
         'helper/smart-aodv-v2-helper.h',
+        'helper/cluster-control-app.h',
         ]
 
     if bld.env['ENABLE_EXAMPLES']:

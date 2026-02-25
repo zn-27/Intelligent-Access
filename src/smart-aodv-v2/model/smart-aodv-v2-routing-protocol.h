@@ -34,6 +34,7 @@
 #include "smart-aodv-v2-neighbor.h"
 #include "smart-aodv-v2-dpd.h"
 #include "smart-aodv-v2-qlearning.h"
+#include "smart-aodv-v2-cluster.h"
 #include "ns3/node.h"
 #include "ns3/random-variable-stream.h"
 #include "ns3/output-stream-wrapper.h"
@@ -610,6 +611,97 @@ namespace ns3
        */
       double GetQEpsilon () const;
 
+    public:
+      // ========== Cluster Management Methods ==========
+      /**
+       * \brief Set local cluster ID
+       * \param clusterId The cluster ID to assign
+       */
+      void SetLocalClusterId (uint32_t clusterId);
+
+      /**
+       * \brief Get local cluster ID
+       * \return Current cluster ID
+       */
+      uint32_t GetLocalClusterId () const;
+
+      /**
+       * \brief Set cluster mode
+       * \param mode Cluster mode (SELF_ORG or CENTRALIZED)
+       */
+      void SetClusterMode (ClusterMode mode);
+
+      /**
+       * \brief Get cluster mode
+       * \return Current cluster mode
+       */
+      ClusterMode GetClusterMode () const;
+
+      /**
+       * \brief Set cluster head address
+       * \param head Cluster head IP address
+       */
+      void SetClusterHead (Ipv4Address head);
+
+      /**
+       * \brief Get cluster head address
+       * \return Cluster head IP address
+       */
+      Ipv4Address GetClusterHeadAddress () const;
+
+      /**
+       * \brief Check if this node is cluster head
+       * \return true if cluster head
+       */
+      bool IsClusterHead () const;
+
+      /**
+       * \brief Get number of known cluster members
+       * \return Number of members in the local cluster
+       */
+      uint32_t GetClusterMemberCount () const;
+
+      /**
+       * \brief Check if an address is in the same cluster
+       * \param addr Address to check
+       * \return true if in same cluster or clustering disabled
+       */
+      bool IsInSameCluster (Ipv4Address addr) const;
+
+      /**
+       * \brief Check if traffic should go via cluster head
+       * \param dst Destination address
+       * \return true if should forward via cluster head
+       */
+      bool ShouldForwardViaClusterHead (Ipv4Address dst) const;
+
+      /**
+       * \brief Update neighbor RSSI in cluster table
+       * \param addr Neighbor address
+       * \param rssi RSSI value in dBm
+       */
+      void UpdateNeighborRssi (Ipv4Address addr, double rssi);
+
+      /**
+       * \brief Get neighbor RSSI from cluster table
+       * \param addr Neighbor address
+       * \return RSSI value in dBm
+       */
+      double GetNeighborRssi (Ipv4Address addr) const;
+
+      /**
+       * \brief Set cluster ID for a neighbor
+       * \param addr Neighbor address
+       * \param clusterId Cluster ID
+       */
+      void SetNeighborClusterId (Ipv4Address addr, uint32_t clusterId);
+
+      /**
+       * \brief Get the cluster table
+       * \return Reference to cluster table
+       */
+      const ClusterTable& GetClusterTable () const;
+
     private:
       /// Q-Learning module for path selection
       QLearning* m_pathQL;
@@ -625,6 +717,49 @@ namespace ns3
       double m_qGamma;
       /// Q-Learning epsilon (exploration rate)
       double m_qEpsilon;
+
+      // ========== Cluster Management Members ==========
+      /// Local cluster ID (0 = unassigned/clustering disabled)
+      uint32_t m_localClusterId;
+      /// Cluster head IP address
+      Ipv4Address m_clusterHeadAddress;
+      /// Whether this node is cluster head
+      bool m_isClusterHead;
+      /// Cluster mode (SELF_ORG or CENTRALIZED)
+      ClusterMode m_clusterMode;
+      /// Cluster table for neighbor management
+      ClusterTable m_clusterTable;
+      /// RSSI threshold to trigger cluster switch (dBm)
+      double m_rssiSwitchThreshold;
+      /// RSSI threshold to accept new cluster (dBm)
+      double m_rssiAcceptThreshold;
+      /// Periodic cluster check timer
+      EventId m_clusterCheckEvent;
+
+      // ========== Cluster Management Private Methods ==========
+      /**
+       * \brief Check if cluster switch is needed based on RSSI
+       */
+      void CheckClusterSwitch ();
+
+      /**
+       * \brief Perform cluster switch to new cluster
+       * \param newClusterId Target cluster ID
+       */
+      void PerformClusterSwitch (uint32_t newClusterId);
+
+      /**
+       * \brief Get average RSSI for current cluster
+       * \return Average RSSI in dBm
+       */
+      double GetCurrentClusterRssi () const;
+
+      /**
+       * \brief Find best cluster to switch to
+       * \param bestRssi Output: best RSSI found
+       * \return Best cluster ID, or 0 if none suitable
+       */
+      uint32_t FindBestCluster (double& bestRssi) const;
     };
 
   } // namespace smartAodvV2
