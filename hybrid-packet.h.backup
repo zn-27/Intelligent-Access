@@ -1,0 +1,234 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * Hybrid Routing Protocol for NS-3
+ * Copyright (c) 2025
+ */
+
+#ifndef HYBRID_PACKET_H
+#define HYBRID_PACKET_H
+
+#include "ns3/header.h"
+#include "ns3/ipv4-address.h"
+#include "ns3/nstime.h"
+#include <vector>
+
+namespace ns3 {
+namespace hybridRouting {
+
+enum MessageType
+{
+  HELLO_MESSAGE = 1,
+  TC_MESSAGE = 2,
+  RREQ_MESSAGE = 3,
+  RREP_MESSAGE = 4,
+  RERR_MESSAGE = 5,
+};
+
+class TypeHeader : public Header
+{
+public:
+  TypeHeader(MessageType t = HELLO_MESSAGE);
+
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const;
+  uint32_t GetSerializedSize() const;
+  void Serialize(Buffer::Iterator start) const;
+  uint32_t Deserialize(Buffer::Iterator start);
+  void Print(std::ostream& os) const;
+
+  MessageType Get() const { return m_type; }
+  bool IsValid() const { return m_valid; }
+
+private:
+  MessageType m_type;
+  bool m_valid;
+};
+
+std::ostream& operator<<(std::ostream& os, TypeHeader const& h);
+
+class HelloHeader : public Header
+{
+public:
+  HelloHeader();
+
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const;
+  uint32_t GetSerializedSize() const;
+  void Serialize(Buffer::Iterator start) const;
+  uint32_t Deserialize(Buffer::Iterator start);
+  void Print(std::ostream& os) const;
+
+  void SetWillingness(uint8_t w) { m_willingness = w; }
+  uint8_t GetWillingness() const { return m_willingness; }
+
+  void SetNeighborCount(uint8_t count) { m_neighborCount = count; }
+  uint8_t GetNeighborCount() const { return m_neighborCount; }
+
+  void AddNeighbor(Ipv4Address addr, double etx, double avgRtt, double lossRate);
+  std::vector<Ipv4Address> GetNeighbors() const;
+  double GetNeighborEtx(uint8_t index) const;
+  double GetNeighborRtt(uint8_t index) const;
+  double GetNeighborLossRate(uint8_t index) const;
+
+  bool operator==(HelloHeader const& o) const;
+
+private:
+  uint8_t m_willingness;
+  uint8_t m_neighborCount;
+
+  struct NeighborInfo {
+    Ipv4Address addr;
+    double etx;
+    double avgRtt;
+    double lossRate;
+  };
+  std::vector<NeighborInfo> m_neighbors;
+};
+
+std::ostream& operator<<(std::ostream& os, HelloHeader const& h);
+
+class RreqHeader : public Header
+{
+public:
+  RreqHeader(uint8_t flags = 0, uint8_t reserved = 0, uint8_t hopCount = 0,
+              uint32_t requestID = 0, Ipv4Address dst = Ipv4Address(),
+              uint32_t dstSeqNo = 0, Ipv4Address origin = Ipv4Address(),
+              uint32_t originSeqNo = 0);
+
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const;
+  uint32_t GetSerializedSize() const;
+  void Serialize(Buffer::Iterator start) const;
+  uint32_t Deserialize(Buffer::Iterator start);
+  void Print(std::ostream& os) const;
+
+  void SetGratuitousRrep(bool f);
+  bool GetGratuitousRrep() const;
+  void SetDestinationOnly(bool f);
+  bool GetDestinationOnly() const;
+  void SetUnknownSeqno(bool f);
+  bool GetUnknownSeqno() const;
+
+  void SetHopCount(uint8_t count) { m_hopCount = count; }
+  uint8_t GetHopCount() const { return m_hopCount; }
+  void SetId(uint32_t id) { m_requestID = id; }
+  uint32_t GetId() const { return m_requestID; }
+  void SetDst(Ipv4Address a) { m_dst = a; }
+  Ipv4Address GetDst() const { return m_dst; }
+  void SetDstSeqno(uint32_t s) { m_dstSeqNo = s; }
+  uint32_t GetDstSeqno() const { return m_dstSeqNo; }
+  void SetOrigin(Ipv4Address a) { m_origin = a; }
+  Ipv4Address GetOrigin() const { return m_origin; }
+  void SetOriginSeqno(uint32_t s) { m_originSeqNo = s; }
+  uint32_t GetOriginSeqno() const { return m_originSeqNo; }
+
+  void SetMaxETX(double etx) { m_maxETX = etx; }
+  double GetMaxETX() const { return m_maxETX; }
+  void SetMaxRtt(double rtt) { m_maxRtt = rtt; }
+  double GetMaxRtt() const { return m_maxRtt; }
+  void SetMode(uint8_t mode) { m_mode = mode; }
+  uint8_t GetMode() const { return m_mode; }
+
+  bool operator==(RreqHeader const& o) const;
+
+private:
+  uint8_t m_flags;
+  uint8_t m_reserved;
+  uint8_t m_hopCount;
+  uint32_t m_requestID;
+  Ipv4Address m_dst;
+  uint32_t m_dstSeqNo;
+  Ipv4Address m_origin;
+  uint32_t m_originSeqNo;
+  double m_maxETX;
+  double m_maxRtt;
+  uint8_t m_mode;
+};
+
+std::ostream& operator<<(std::ostream& os, RreqHeader const& h);
+
+class RrepHeader : public Header
+{
+public:
+  RrepHeader(uint8_t prefixSize = 0, uint8_t hopCount = 0,
+              Ipv4Address dst = Ipv4Address(),
+              uint32_t dstSeqNo = 0, Ipv4Address origin = Ipv4Address(),
+              Time lifetime = Seconds(0));
+
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const;
+  uint32_t GetSerializedSize() const;
+  void Serialize(Buffer::Iterator start) const;
+  uint32_t Deserialize(Buffer::Iterator start);
+  void Print(std::ostream& os) const;
+
+  void SetHopCount(uint8_t count) { m_hopCount = count; }
+  uint8_t GetHopCount() const { return m_hopCount; }
+  void SetDst(Ipv4Address a) { m_dst = a; }
+  Ipv4Address GetDst() const { return m_dst; }
+  void SetDstSeqno(uint32_t s) { m_dstSeqNo = s; }
+  uint32_t GetDstSeqno() const { return m_dstSeqNo; }
+  void SetOrigin(Ipv4Address a) { m_origin = a; }
+  Ipv4Address GetOrigin() const { return m_origin; }
+  void SetLifeTime(Time t) { m_lifeTime = t; }
+  Time GetLifeTime() const { return m_lifeTime; }
+
+  void SetPathETX(double etx) { m_pathETX = etx; }
+  double GetPathETX() const { return m_pathETX; }
+  void SetPathRtt(double rtt) { m_pathRtt = rtt; }
+  double GetPathRtt() const { return m_pathRtt; }
+  void SetBackupRoute(bool isBackup) { m_isBackupRoute = isBackup; }
+  bool IsBackupRoute() const { return m_isBackupRoute; }
+
+  bool operator==(RrepHeader const& o) const;
+
+private:
+  uint8_t m_prefixSize;
+  uint8_t m_hopCount;
+  Ipv4Address m_dst;
+  uint32_t m_dstSeqNo;
+  Ipv4Address m_origin;
+  Time m_lifeTime;
+  double m_pathETX;
+  double m_pathRtt;
+  bool m_isBackupRoute;
+};
+
+std::ostream& operator<<(std::ostream& os, RrepHeader const& h);
+
+class RerrHeader : public Header
+{
+public:
+  RerrHeader(uint8_t flag = 0);
+
+  static TypeId GetTypeId();
+  TypeId GetInstanceTypeId() const;
+  uint32_t GetSerializedSize() const;
+  void Serialize(Buffer::Iterator start) const;
+  uint32_t Deserialize(Buffer::Iterator start);
+  void Print(std::ostream& os) const;
+
+  void SetNoDelete(bool f);
+  bool GetNoDelete() const;
+
+  void AddUnreachableDestination(Ipv4Address dst, uint32_t seqNo);
+  void Clear();
+  std::vector<std::pair<Ipv4Address, uint32_t>> GetUnreachableDestinations() const;
+
+private:
+  uint8_t m_flag;
+  uint8_t m_reserved;
+
+  struct Unreachable {
+    Ipv4Address addr;
+    uint32_t seqNo;
+  };
+  std::vector<Unreachable> m_unreachableDst;
+};
+
+std::ostream& operator<<(std::ostream& os, RerrHeader const& h);
+
+}
+}
+
+#endif

@@ -1,0 +1,44 @@
+## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    module = bld.create_ns3_module('harp', ['internet', 'wifi'])
+    module.includes = '.'
+    module.source = [
+        'model/harp-id-cache.cc',
+        'model/harp-dpd.cc',
+        'model/harp-rtable.cc',
+        'model/harp-rqueue.cc',
+        'model/harp-packet.cc',
+        'model/harp-neighbor.cc',
+        'model/harp-routing-protocol.cc',
+        'helper/harp-helper.cc',
+        ]
+
+    # harp_test = bld.create_ns3_module_test_library('harp')
+    # harp_test.source = [
+    #     ]
+
+    # # Tests encapsulating example programs should be listed here
+    # if (bld.env['ENABLE_EXAMPLES']):
+    #     harp_test.source.extend([
+    #     #   'test/harp-examples-test-suite.cc',
+    #         ])
+    
+    headers = bld(features='ns3header')
+    headers.module = 'harp'
+    headers.source = [
+        'model/harp-id-cache.h',
+        'model/harp-dpd.h',
+        'model/harp-rtable.h',
+        'model/harp-rqueue.h',
+        'model/harp-packet.h',
+        'model/harp-neighbor.h',
+        'model/harp-routing-protocol.h',
+        'helper/harp-helper.h',
+        
+        ]
+
+    if bld.env['ENABLE_EXAMPLES']:
+        bld.recurse('examples')
+
+    # bld.ns3_python_bindings()

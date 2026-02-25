@@ -19,6 +19,7 @@
 // Include SmartAODV and AODV helpers
 #include "ns3/smart-aodv-helper.h"
 #include "ns3/aodv-helper.h"
+#include "ns3/harp-helper.h"
 
 using namespace ns3;
 
@@ -109,9 +110,9 @@ void SmartAodvTest::Run()
   // Try SmartAODV first, fall back to regular AODV
   SmartAodvHelper smartAodv;
   AodvHelper aodv;
-
+  HarpHelper harp;
   Ipv4ListRoutingHelper list;
-  list.Add(smartAodv, 20); // Higher priority for SmartAODV
+  list.Add(harp, 20); // Higher priority for SmartAODV
   // list.Add(aodv, 10);      // Fallback to regular AODV
 
   internet.SetRoutingHelper(list);
