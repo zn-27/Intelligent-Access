@@ -33,6 +33,7 @@
 #include "smart-aodv-v2-packet.h"
 #include "smart-aodv-v2-neighbor.h"
 #include "smart-aodv-v2-dpd.h"
+#include "smart-aodv-v2-qlearning.h"
 #include "ns3/node.h"
 #include "ns3/random-variable-stream.h"
 #include "ns3/output-stream-wrapper.h"
@@ -495,6 +496,135 @@ namespace ns3
        * \return predicted link expiry time
        */
       Time PredictLinkExpiry(double rssi);
+
+      // Q-Learning methods
+      /**
+       * \brief Initialize Q-learning modules
+       */
+      void InitializeQLearning ();
+
+      /**
+       * \brief Get Q-learning state for a route
+       * \param rt Routing table entry
+       * \return QState representing the route state
+       */
+      QState GetRouteQState (const RoutingTableEntry& rt) const;
+
+      /**
+       * \brief Get Q-learning state for a neighbor
+       * \param neighbor Neighbor address
+       * \return QState representing the neighbor state
+       */
+      QState GetNeighborQState (Ipv4Address neighbor) const;
+
+      /**
+       * \brief Select best route using Q-learning
+       * \param dst Destination address
+       * \param rt Output routing table entry
+       * \return true if route found
+       */
+      bool QLearningRouteSelection (Ipv4Address dst, RoutingTableEntry& rt);
+
+      /**
+       * \brief Select best next-hop using Q-learning
+       * \param candidates Vector of candidate neighbors
+       * \return Index of selected neighbor
+       */
+      int QLearningNextHopSelection (const std::vector<Ipv4Address>& candidates);
+
+      /**
+       * \brief Update Q-values after transmission result
+       * \param dst Destination address
+       * \param success Whether transmission was successful
+       * \param snr SNR value of the transmission
+       * \param hops Number of hops
+       */
+      void UpdateQValues (Ipv4Address dst, bool success, double snr, uint8_t hops);
+
+      /**
+       * \brief Store Q-context for later update
+       * \param dst Destination address
+       * \param state Q-state before action
+       * \param action Action taken
+       */
+      void StoreQContext (Ipv4Address dst, const QState& state, int action);
+
+      /**
+       * \brief Get stored Q-context
+       * \param dst Destination address
+       * \return QContext for the destination
+       */
+      QContext GetQContext (Ipv4Address dst) const;
+
+      /**
+       * \brief Enable/disable Q-learning
+       * \param enable true to enable
+       */
+      void SetQLearningEnable (bool enable)
+      {
+        m_qLearningEnabled = enable;
+      }
+
+      /**
+       * \brief Check if Q-learning is enabled
+       * \return true if enabled
+       */
+      bool IsQLearningEnabled () const
+      {
+        return m_qLearningEnabled;
+      }
+
+      /**
+       * \brief Set Q-learning alpha parameter
+       * \param alpha Learning rate
+       */
+      void SetQAlpha (double alpha);
+
+      /**
+       * \brief Get Q-learning alpha parameter
+       * \return Learning rate
+       */
+      double GetQAlpha () const;
+
+      /**
+       * \brief Set Q-learning gamma parameter
+       * \param gamma Discount factor
+       */
+      void SetQGamma (double gamma);
+
+      /**
+       * \brief Get Q-learning gamma parameter
+       * \return Discount factor
+       */
+      double GetQGamma () const;
+
+      /**
+       * \brief Set Q-learning epsilon parameter
+       * \param epsilon Exploration rate
+       */
+      void SetQEpsilon (double epsilon);
+
+      /**
+       * \brief Get Q-learning epsilon parameter
+       * \return Exploration rate
+       */
+      double GetQEpsilon () const;
+
+    private:
+      /// Q-Learning module for path selection
+      QLearning* m_pathQL;
+      /// Q-Learning module for next-hop selection
+      QLearning* m_nextHopQL;
+      /// Q-Learning enabled flag
+      bool m_qLearningEnabled;
+      /// Q-Learning contexts for tracking state transitions
+      std::map<Ipv4Address, QContext> m_qContexts;
+      /// Q-Learning alpha (learning rate)
+      double m_qAlpha;
+      /// Q-Learning gamma (discount factor)
+      double m_qGamma;
+      /// Q-Learning epsilon (exploration rate)
+      double m_qEpsilon;
     };
 
   } // namespace smartAodvV2

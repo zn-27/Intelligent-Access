@@ -68,6 +68,16 @@ public:
     /// Neighbor close indicator
     bool close;
 
+    // Q-Learning extension fields
+    /// Average SNR value for this neighbor (dB)
+    double m_avgSnr;
+    /// Neighbor Q-value for next-hop selection
+    double m_neighborQValue;
+    /// Total forwarding count via this neighbor
+    uint32_t m_fwdCount;
+    /// Successful forwarding count via this neighbor
+    uint32_t m_fwdSuccess;
+
     /**
      * \brief Neighbor structure constructor
      *
@@ -79,8 +89,23 @@ public:
       : m_neighborAddress (ip),
         m_hardwareAddress (mac),
         m_expireTime (t),
-        close (false)
+        close (false),
+        m_avgSnr (0.0),
+        m_neighborQValue (0.0),
+        m_fwdCount (0),
+        m_fwdSuccess (0)
     {
+    }
+
+    /**
+     * \brief Get forwarding success rate
+     * \return Success rate (0.0 to 1.0)
+     */
+    double GetFwdSuccessRate () const
+    {
+      if (m_fwdCount == 0)
+        return 1.0;
+      return static_cast<double> (m_fwdSuccess) / static_cast<double> (m_fwdCount);
     }
   };
   /**
@@ -146,6 +171,54 @@ public:
   {
     return m_handleLinkFailure;
   }
+
+  // Q-Learning extension methods
+  /**
+   * \brief Get the neighbor list (for Q-learning next-hop selection)
+   * \return Reference to the neighbor vector
+   */
+  std::vector<Neighbor>& GetNeighbors ()
+  {
+    return m_nb;
+  }
+  /**
+   * \brief Get the neighbor list (const version)
+   * \return Const reference to the neighbor vector
+   */
+  const std::vector<Neighbor>& GetNeighbors () const
+  {
+    return m_nb;
+  }
+  /**
+   * \brief Update neighbor's average SNR
+   * \param addr Neighbor IP address
+   * \param snr New SNR value
+   */
+  void UpdateNeighborSnr (Ipv4Address addr, double snr);
+  /**
+   * \brief Get neighbor's average SNR
+   * \param addr Neighbor IP address
+   * \return Average SNR value, or 0 if neighbor not found
+   */
+  double GetNeighborSnr (Ipv4Address addr) const;
+  /**
+   * \brief Update neighbor's Q-value
+   * \param addr Neighbor IP address
+   * \param qValue New Q-value
+   */
+  void UpdateNeighborQValue (Ipv4Address addr, double qValue);
+  /**
+   * \brief Get neighbor's Q-value
+   * \param addr Neighbor IP address
+   * \return Q-value, or 0 if neighbor not found
+   */
+  double GetNeighborQValue (Ipv4Address addr) const;
+  /**
+   * \brief Increment neighbor's forwarding count
+   * \param addr Neighbor IP address
+   * \param success Whether forwarding was successful
+   */
+  void IncrementFwdCount (Ipv4Address addr, bool success);
 
 private:
   /// link failure callback

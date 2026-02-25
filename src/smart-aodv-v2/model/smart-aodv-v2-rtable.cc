@@ -58,7 +58,11 @@ namespace ns3
           m_blackListTimeout(Simulator::Now()),
           m_lastRssi(-100.0),          // Initialize to minimum possible RSSI
           m_minSnr(0.0),               // Initialize to 0 dB
-          m_linkExpiryTime(Seconds(0)) // Initialize to 0
+          m_linkExpiryTime(Seconds(0)), // Initialize to 0
+          m_pathQValue(0.0),           // Q-Learning: Initialize Q-value to 0
+          m_lastQUpdate(Simulator::Now()), // Q-Learning: Initialize update time
+          m_txCount(0),                // Q-Learning: Initialize transmission count
+          m_txSuccess(0)               // Q-Learning: Initialize success count
     {
       m_ipv4Route = Create<Ipv4Route>();
       m_ipv4Route->SetDestination(dst);

@@ -67,6 +67,11 @@ bool SmartAodvTest::Configure(int argc, char **argv)
 
 void SmartAodvTest::Run()
 {
+  // Set fixed random seed for reproducibility
+  RngSeedManager::SetSeed(2); // 1,2,3,4,5,6,7,8,9,10
+  // 42
+  RngSeedManager::SetRun(1);
+
   NS_LOG_UNCOND("SmartAODV Intelligent Sensing Test");
   NS_LOG_UNCOND("Number of nodes: " << size);
   NS_LOG_UNCOND("Grid step: " << step);
@@ -115,7 +120,7 @@ void SmartAodvTest::Run()
   HarpHelper harp;
   Ipv4ListRoutingHelper list;
   // list.Add(harp, 20); // Higher priority for SmartAODV
-  list.Add(smartAodv, 10); // Fallback to regular AODV
+  list.Add(aodv, 10); // Using Q-learning Smart-AODV-V2
 
   internet.SetRoutingHelper(list);
   internet.Install(nodes);

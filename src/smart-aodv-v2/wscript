@@ -10,6 +10,7 @@ def build(bld):
         'model/smart-aodv-v2-rqueue.cc',
         'model/smart-aodv-v2-packet.cc',
         'model/smart-aodv-v2-neighbor.cc',
+        'model/smart-aodv-v2-qlearning.cc',
         'model/smart-aodv-v2-routing-protocol.cc',
         'helper/smart-aodv-v2-helper.cc',
         ]
@@ -39,6 +40,7 @@ def build(bld):
         'model/smart-aodv-v2-rqueue.h',
         'model/smart-aodv-v2-packet.h',
         'model/smart-aodv-v2-neighbor.h',
+        'model/smart-aodv-v2-qlearning.h',
         'model/smart-aodv-v2-routing-protocol.h',
         'helper/smart-aodv-v2-helper.h',
         ]

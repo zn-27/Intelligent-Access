@@ -190,5 +190,83 @@ namespace ns3
       Purge();
     }
 
+    void
+    Neighbors::UpdateNeighborSnr(Ipv4Address addr, double snr)
+    {
+      NS_LOG_FUNCTION(this << addr << snr);
+      Purge();
+      for (std::vector<Neighbor>::iterator i = m_nb.begin(); i != m_nb.end(); ++i)
+      {
+        if (i->m_neighborAddress == addr)
+        {
+          // Exponential moving average for SNR
+          const double alpha = 0.3;
+          i->m_avgSnr = alpha * snr + (1.0 - alpha) * i->m_avgSnr;
+          return;
+        }
+      }
+      // Neighbor not found - this is okay, it will be created on Update
+    }
+
+    double
+    Neighbors::GetNeighborSnr(Ipv4Address addr) const
+    {
+      for (std::vector<Neighbor>::const_iterator i = m_nb.begin(); i != m_nb.end(); ++i)
+      {
+        if (i->m_neighborAddress == addr)
+        {
+          return i->m_avgSnr;
+        }
+      }
+      return 0.0;
+    }
+
+    void
+    Neighbors::UpdateNeighborQValue(Ipv4Address addr, double qValue)
+    {
+      NS_LOG_FUNCTION(this << addr << qValue);
+      Purge();
+      for (std::vector<Neighbor>::iterator i = m_nb.begin(); i != m_nb.end(); ++i)
+      {
+        if (i->m_neighborAddress == addr)
+        {
+          i->m_neighborQValue = qValue;
+          return;
+        }
+      }
+    }
+
+    double
+    Neighbors::GetNeighborQValue(Ipv4Address addr) const
+    {
+      for (std::vector<Neighbor>::const_iterator i = m_nb.begin(); i != m_nb.end(); ++i)
+      {
+        if (i->m_neighborAddress == addr)
+        {
+          return i->m_neighborQValue;
+        }
+      }
+      return 0.0;
+    }
+
+    void
+    Neighbors::IncrementFwdCount(Ipv4Address addr, bool success)
+    {
+      NS_LOG_FUNCTION(this << addr << success);
+      Purge();
+      for (std::vector<Neighbor>::iterator i = m_nb.begin(); i != m_nb.end(); ++i)
+      {
+        if (i->m_neighborAddress == addr)
+        {
+          i->m_fwdCount++;
+          if (success)
+          {
+            i->m_fwdSuccess++;
+          }
+          return;
+        }
+      }
+    }
+
   } // namespace smartAodvV2
 } // namespace ns3

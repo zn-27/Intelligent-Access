@@ -178,9 +178,16 @@ namespace ns3
           m_htimer(Timer::CANCEL_ON_DESTROY),
           m_rreqRateLimitTimer(Timer::CANCEL_ON_DESTROY),
           m_rerrRateLimitTimer(Timer::CANCEL_ON_DESTROY),
-          m_lastBcastTime(Seconds(0))
+          m_lastBcastTime(Seconds(0)),
+          m_pathQL(nullptr),
+          m_nextHopQL(nullptr),
+          m_qLearningEnabled(false),  // Disabled: Q-learning adds overhead without benefit for single-route AODV
+          m_qAlpha(0.1),
+          m_qGamma(0.9),
+          m_qEpsilon(0.0)  // No exploration needed for single-route AODV
     {
       m_nb.SetCallback(MakeCallback(&RoutingProtocol::SendRerrWhenBreaksLinkToNextHop, this));
+      InitializeQLearning();
     }
 
     TypeId
@@ -295,6 +302,26 @@ namespace ns3
                                             MakeBooleanAccessor(&RoutingProtocol::SetBroadcastEnable,
                                                                 &RoutingProtocol::GetBroadcastEnable),
                                             MakeBooleanChecker())
+                              .AddAttribute("EnableQLearning", "Enable Q-Learning for intelligent routing decisions.",
+                                            BooleanValue(true),  // Re-enabled with fixes
+                                            MakeBooleanAccessor(&RoutingProtocol::SetQLearningEnable,
+                                                                &RoutingProtocol::IsQLearningEnabled),
+                                            MakeBooleanChecker())
+                              .AddAttribute("QAlpha", "Q-Learning learning rate (alpha).",
+                                            DoubleValue(0.1),
+                                            MakeDoubleAccessor(&RoutingProtocol::SetQAlpha,
+                                                               &RoutingProtocol::GetQAlpha),
+                                            MakeDoubleChecker<double>(0.0, 1.0))
+                              .AddAttribute("QGamma", "Q-Learning discount factor (gamma).",
+                                            DoubleValue(0.9),
+                                            MakeDoubleAccessor(&RoutingProtocol::SetQGamma,
+                                                               &RoutingProtocol::GetQGamma),
+                                            MakeDoubleChecker<double>(0.0, 1.0))
+                              .AddAttribute("QEpsilon", "Q-Learning exploration rate (epsilon).",
+                                            DoubleValue(0.1),
+                                            MakeDoubleAccessor(&RoutingProtocol::SetQEpsilon,
+                                                               &RoutingProtocol::GetQEpsilon),
+                                            MakeDoubleChecker<double>(0.0, 1.0))
                               .AddAttribute("UniformRv",
                                             "Access to the underlying UniformRandomVariable",
                                             StringValue("ns3::UniformRandomVariable"),
@@ -338,6 +365,20 @@ namespace ns3
         iter->first->Close();
       }
       m_socketSubnetBroadcastAddresses.clear();
+
+      // Clean up Q-learning modules
+      if (m_pathQL != nullptr)
+      {
+        delete m_pathQL;
+        m_pathQL = nullptr;
+      }
+      if (m_nextHopQL != nullptr)
+      {
+        delete m_nextHopQL;
+        m_nextHopQL = nullptr;
+      }
+      m_qContexts.clear();
+
       Ipv4RoutingProtocol::DoDispose();
     }
 
@@ -399,8 +440,28 @@ namespace ns3
       Ptr<Ipv4Route> route;
       Ipv4Address dst = header.GetDestination();
       RoutingTableEntry rt;
-      if (m_routingTable.LookupValidRoute(dst, rt))
+
+      // Use Q-learning for route selection if enabled
+      if (m_qLearningEnabled && QLearningRouteSelection(dst, rt))
       {
+        route = rt.GetRoute();
+        NS_ASSERT(route != 0);
+        NS_LOG_DEBUG("Q-Learning selected route to " << route->GetDestination()
+                    << " from interface " << route->GetSource()
+                    << " Q-value=" << rt.GetPathQValue());
+        if (oif != 0 && route->GetOutputDevice() != oif)
+        {
+          NS_LOG_DEBUG("Output device doesn't match. Dropped.");
+          sockerr = Socket::ERROR_NOROUTETOHOST;
+          return Ptr<Ipv4Route>();
+        }
+        UpdateRouteLifeTime(dst, m_activeRouteTimeout);
+        UpdateRouteLifeTime(route->GetGateway(), m_activeRouteTimeout);
+        return route;
+      }
+      else if (m_routingTable.LookupValidRoute(dst, rt))
+      {
+        // Fallback to standard lookup if Q-learning is disabled or no Q-route found
         route = rt.GetRoute();
         NS_ASSERT(route != 0);
         NS_LOG_DEBUG("Exist route to " << route->GetDestination() << " from interface " << route->GetSource());
@@ -609,6 +670,17 @@ namespace ns3
           Ptr<Ipv4Route> route = toDst.GetRoute();
           NS_LOG_LOGIC(route->GetSource() << " forwarding to " << dst << " from " << origin << " packet " << p->GetUid());
 
+          // Q-Learning: Store context for forwarding update
+          if (m_qLearningEnabled)
+          {
+            QState fwdState = GetRouteQState(toDst);
+            StoreQContext(dst, fwdState, 0); // Action 0 for single route
+
+            // Update neighbor forwarding stats
+            Ipv4Address nextHop = route->GetGateway();
+            m_nb.IncrementFwdCount(nextHop, true); // Will be updated on success/failure
+          }
+
           /*
            *  Each time a route is used to forward a data packet, its Active Route
            *  Lifetime field of the source, destination and the next hop on the
@@ -631,6 +703,15 @@ namespace ns3
           m_nb.Update(toOrigin.GetNextHop(), m_activeRouteTimeout);
 
           ucb(route, p, header);
+
+          // Q-Learning: Update with success after packet forwarded
+          // This is critical - without this, Q-values only get negative updates on failure
+          if (m_qLearningEnabled)
+          {
+            double snr = toDst.GetMinSnr();
+            UpdateQValues(dst, true, snr, toDst.GetHop());
+          }
+
           return true;
         }
         else
@@ -639,6 +720,12 @@ namespace ns3
           {
             SendRerrWhenNoRouteToForward(dst, toDst.GetSeqNo(), origin);
             NS_LOG_DEBUG("Drop packet " << p->GetUid() << " because no route to forward it.");
+
+            // Q-Learning: Update with failure
+            if (m_qLearningEnabled)
+            {
+              UpdateQValues(dst, false, 0.0, toDst.GetHop());
+            }
             return false;
           }
         }
@@ -2247,8 +2334,20 @@ namespace ns3
                                                            << " Noise: " << noiseDbm << " dBm"
                                                            << " SNR: " << currentSnr << " dB");
 
-      // 如果你有更新邻居表或链路质量的代码，在这里继续执行
-      // UpdateNeighborLinkQuality (packet, signalDbm, currentSnr);
+      // Q-Learning: Update neighbor SNR for intelligent routing
+      // Note: We can't directly get the sender address from PHY layer,
+      // but we can update SNR when we receive packets from known neighbors
+      // This will be updated when processing AODV control messages
+
+      // Update SNR for all known neighbors (simplified approach)
+      // In practice, you would correlate this with the actual sender
+      const std::vector<Neighbors::Neighbor>& neighbors = m_nb.GetNeighbors();
+      for (std::vector<Neighbors::Neighbor>::const_iterator it = neighbors.begin();
+           it != neighbors.end(); ++it)
+      {
+        // Update with exponentially weighted average
+        m_nb.UpdateNeighborSnr(it->m_neighborAddress, currentSnr);
+      }
     }
 
     // SmartAodv: Predict link expiry time based on RSSI
@@ -2290,6 +2389,246 @@ namespace ns3
       // Use existing SendRequest method to initiate route discovery
       // Before sending, we could add flags or metadata to indicate this is proactive
       SendRequest(destination);
+    }
+
+    // Q-Learning Implementation
+
+    void
+    RoutingProtocol::InitializeQLearning()
+    {
+      NS_LOG_FUNCTION(this);
+
+      // Create Q-learning modules if not already created
+      if (m_pathQL == nullptr)
+      {
+        m_pathQL = new QLearning(m_qAlpha, m_qGamma, m_qEpsilon);
+      }
+      if (m_nextHopQL == nullptr)
+      {
+        m_nextHopQL = new QLearning(m_qAlpha, m_qGamma, m_qEpsilon);
+      }
+
+      NS_LOG_INFO("Q-Learning initialized: alpha=" << m_qAlpha
+                  << ", gamma=" << m_qGamma
+                  << ", epsilon=" << m_qEpsilon);
+    }
+
+    QState
+    RoutingProtocol::GetRouteQState(const RoutingTableEntry& rt) const
+    {
+      // Get SNR from the route's minSnr field
+      double snr = rt.GetMinSnr();
+      uint8_t hops = rt.GetHop();
+
+      return QLearning::CreateState(snr, hops);
+    }
+
+    QState
+    RoutingProtocol::GetNeighborQState(Ipv4Address neighbor) const
+    {
+      // Get average SNR from neighbor tracking
+      double snr = m_nb.GetNeighborSnr(neighbor);
+      uint8_t hops = 1; // Neighbor is always 1 hop
+
+      return QLearning::CreateState(snr, hops);
+    }
+
+    bool
+    RoutingProtocol::QLearningRouteSelection(Ipv4Address dst, RoutingTableEntry& rt)
+    {
+      NS_LOG_FUNCTION(this << dst);
+
+      if (!m_qLearningEnabled || m_pathQL == nullptr)
+      {
+        // Q-learning disabled, use standard lookup
+        return m_routingTable.LookupValidRoute(dst, rt);
+      }
+
+      // Get all valid routes to destination (in AODV, typically only one route per destination)
+      // For multi-path support, we would need to extend the routing table
+      if (!m_routingTable.LookupValidRoute(dst, rt))
+      {
+        return false;
+      }
+
+      // Get Q-state for this route
+      QState state = GetRouteQState(rt);
+
+      // For single route, we just use it but update Q-context for learning
+      // Store context for later Q-value update
+      StoreQContext(dst, state, 0); // Action 0 for single route
+
+      NS_LOG_DEBUG("Q-Learning route selection: dst=" << dst
+                  << ", state=(" << (uint32_t)state.snrLevel << "," << (uint32_t)state.hopCount << ")");
+
+      return true;
+    }
+
+    int
+    RoutingProtocol::QLearningNextHopSelection(const std::vector<Ipv4Address>& candidates)
+    {
+      NS_LOG_FUNCTION(this << candidates.size());
+
+      if (!m_qLearningEnabled || m_nextHopQL == nullptr || candidates.empty())
+      {
+        return 0; // Return first candidate
+      }
+
+      if (candidates.size() == 1)
+      {
+        return 0; // Only one choice
+      }
+
+      // Get Q-state based on first candidate (or we could aggregate states)
+      // For simplicity, we use the average SNR of all candidates
+      double avgSnr = 0.0;
+      for (std::vector<Ipv4Address>::const_iterator it = candidates.begin();
+           it != candidates.end(); ++it)
+      {
+        avgSnr += m_nb.GetNeighborSnr(*it);
+      }
+      avgSnr /= candidates.size();
+
+      QState state = QLearning::CreateState(avgSnr, 1);
+
+      // Use Q-learning to select best neighbor
+      int selected = m_nextHopQL->ChooseAction(state, candidates.size());
+
+      NS_LOG_DEBUG("Q-Learning next-hop selection: selected index " << selected
+                  << " from " << candidates.size() << " candidates");
+
+      return selected;
+    }
+
+    void
+    RoutingProtocol::UpdateQValues(Ipv4Address dst, bool success, double snr, uint8_t hops)
+    {
+      NS_LOG_FUNCTION(this << dst << success << snr << (uint32_t)hops);
+
+      if (!m_qLearningEnabled || m_pathQL == nullptr)
+      {
+        return;
+      }
+
+      // Get previous context
+      QContext ctx = GetQContext(dst);
+      if (!ctx.IsValid())
+      {
+        NS_LOG_DEBUG("No Q-context found for " << dst);
+        return;
+      }
+
+      // Create new state based on transmission result
+      QState newState = QLearning::CreateState(snr, hops);
+
+      // Calculate reward
+      TransmissionStats stats(success, snr, hops);
+      double reward = m_pathQL->CalculateReward(stats);
+
+      // Update Q-value
+      m_pathQL->Update(ctx.previousState, ctx.previousAction, newState, reward);
+
+      // Update routing table entry Q-value
+      RoutingTableEntry rt;
+      if (m_routingTable.LookupRoute(dst, rt))
+      {
+        rt.SetPathQValue(m_pathQL->GetQValue(ctx.previousState, ctx.previousAction));
+        rt.SetLastQUpdate(Simulator::Now());
+
+        // Update transmission stats
+        rt.IncrementTxCount();
+        if (success)
+        {
+          rt.IncrementTxSuccess();
+        }
+
+        m_routingTable.Update(rt);
+      }
+
+      // Clear context after update
+      m_qContexts.erase(dst);
+
+      NS_LOG_DEBUG("Q-value updated for " << dst << ": reward=" << reward);
+    }
+
+    void
+    RoutingProtocol::StoreQContext(Ipv4Address dst, const QState& state, int action)
+    {
+      NS_LOG_FUNCTION(this << dst << action);
+
+      QContext ctx(state, action, dst);
+      m_qContexts[dst] = ctx;
+    }
+
+    QContext
+    RoutingProtocol::GetQContext(Ipv4Address dst) const
+    {
+      std::map<Ipv4Address, QContext>::const_iterator it = m_qContexts.find(dst);
+      if (it != m_qContexts.end())
+      {
+        return it->second;
+      }
+      return QContext(); // Return invalid context
+    }
+
+    void
+    RoutingProtocol::SetQAlpha(double alpha)
+    {
+      m_qAlpha = alpha;
+      if (m_pathQL != nullptr)
+      {
+        m_pathQL->SetAlpha(alpha);
+      }
+      if (m_nextHopQL != nullptr)
+      {
+        m_nextHopQL->SetAlpha(alpha);
+      }
+    }
+
+    double
+    RoutingProtocol::GetQAlpha() const
+    {
+      return m_qAlpha;
+    }
+
+    void
+    RoutingProtocol::SetQGamma(double gamma)
+    {
+      m_qGamma = gamma;
+      if (m_pathQL != nullptr)
+      {
+        m_pathQL->SetGamma(gamma);
+      }
+      if (m_nextHopQL != nullptr)
+      {
+        m_nextHopQL->SetGamma(gamma);
+      }
+    }
+
+    double
+    RoutingProtocol::GetQGamma() const
+    {
+      return m_qGamma;
+    }
+
+    void
+    RoutingProtocol::SetQEpsilon(double epsilon)
+    {
+      m_qEpsilon = epsilon;
+      if (m_pathQL != nullptr)
+      {
+        m_pathQL->SetEpsilon(epsilon);
+      }
+      if (m_nextHopQL != nullptr)
+      {
+        m_nextHopQL->SetEpsilon(epsilon);
+      }
+    }
+
+    double
+    RoutingProtocol::GetQEpsilon() const
+    {
+      return m_qEpsilon;
     }
 
   } // namespace smartAodvV2

@@ -394,6 +394,80 @@ public:
    */
   void Print (Ptr<OutputStreamWrapper> stream, Time::Unit unit = Time::S) const;
 
+  // Q-Learning extension methods
+  /**
+   * Set the path Q-value for this route
+   * \param qValue the Q-value
+   */
+  void SetPathQValue (double qValue)
+  {
+    m_pathQValue = qValue;
+  }
+  /**
+   * Get the path Q-value
+   * \return the path Q-value
+   */
+  double GetPathQValue () const
+  {
+    return m_pathQValue;
+  }
+  /**
+   * Set the last Q-value update time
+   * \param time the update time
+   */
+  void SetLastQUpdate (Time time)
+  {
+    m_lastQUpdate = time;
+  }
+  /**
+   * Get the last Q-value update time
+   * \return the last update time
+   */
+  Time GetLastQUpdate () const
+  {
+    return m_lastQUpdate;
+  }
+  /**
+   * Increment the transmission count
+   */
+  void IncrementTxCount ()
+  {
+    m_txCount++;
+  }
+  /**
+   * Get the transmission count
+   * \return the transmission count
+   */
+  uint32_t GetTxCount () const
+  {
+    return m_txCount;
+  }
+  /**
+   * Increment the successful transmission count
+   */
+  void IncrementTxSuccess ()
+  {
+    m_txSuccess++;
+  }
+  /**
+   * Get the successful transmission count
+   * \return the successful transmission count
+   */
+  uint32_t GetTxSuccess () const
+  {
+    return m_txSuccess;
+  }
+  /**
+   * Get the transmission success rate
+   * \return the success rate (0.0 to 1.0)
+   */
+  double GetSuccessRate () const
+  {
+    if (m_txCount == 0)
+      return 1.0; // Assume success if no transmissions yet
+    return static_cast<double> (m_txSuccess) / static_cast<double> (m_txCount);
+  }
+
 private:
   /// Valid Destination Sequence Number flag
   bool m_validSeqNo;
@@ -438,6 +512,16 @@ private:
   double m_minSnr;
   /// Predicted link expiry time for proactive route discovery
   Time m_linkExpiryTime;
+
+  // Q-Learning extension fields
+  /// Path Q-value for intelligent route selection
+  double m_pathQValue;
+  /// Last time Q-value was updated
+  Time m_lastQUpdate;
+  /// Total transmission count on this route
+  uint32_t m_txCount;
+  /// Successful transmission count on this route
+  uint32_t m_txSuccess;
 };
 
 /**
