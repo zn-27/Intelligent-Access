@@ -112,8 +112,8 @@ void SmartAodvTest::Run()
   AodvHelper aodv;
   HarpHelper harp;
   Ipv4ListRoutingHelper list;
-  list.Add(harp, 20); // Higher priority for SmartAODV
-  // list.Add(aodv, 10);      // Fallback to regular AODV
+  // list.Add(harp, 20); // Higher priority for SmartAODV
+  list.Add(smartAodv, 10); // Fallback to regular AODV
 
   internet.SetRoutingHelper(list);
   internet.Install(nodes);
