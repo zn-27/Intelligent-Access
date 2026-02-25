@@ -18,6 +18,7 @@
 
 // Include SmartAODV and AODV helpers
 #include "ns3/smart-aodv-helper.h"
+#include "ns3/smart-aodv-v2-helper.h"
 #include "ns3/aodv-helper.h"
 #include "ns3/harp-helper.h"
 
@@ -109,6 +110,7 @@ void SmartAodvTest::Run()
 
   // Try SmartAODV first, fall back to regular AODV
   SmartAodvHelper smartAodv;
+  SmartAodvV2Helper smartAodv2;
   AodvHelper aodv;
   HarpHelper harp;
   Ipv4ListRoutingHelper list;
