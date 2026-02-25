@@ -15,6 +15,7 @@ def build(bld):
         'model/smart-aodv-v2-routing-protocol.cc',
         'helper/smart-aodv-v2-helper.cc',
         'helper/cluster-control-app.cc',
+        'helper/cluster-demo-helper.cc',
         ]
 
     # Temporarily disable tests to focus on core module
@@ -47,6 +48,7 @@ def build(bld):
         'model/smart-aodv-v2-routing-protocol.h',
         'helper/smart-aodv-v2-helper.h',
         'helper/cluster-control-app.h',
+        'helper/cluster-demo-helper.h',
         ]
 
     if bld.env['ENABLE_EXAMPLES']:
