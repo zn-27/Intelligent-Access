@@ -187,7 +187,7 @@ Mac48Address::GetMulticast6Prefix (void)
   static Mac48Address multicast = Mac48Address ("33:33:00:00:00:00");
   return multicast;
 }
-Mac48Address 
+Mac48Address
 Mac48Address::GetMulticast (Ipv4Address multicastGroup)
 {
   NS_LOG_FUNCTION (multicastGroup);
@@ -245,6 +245,38 @@ Mac48Address Mac48Address::GetMulticast (Ipv6Address addr)
 
   return etherAddr;
 }
+//-----------------自定义函数----------------------------
+uint64_t
+Mac48Address::ConvertToU64() const
+{
+  NS_LOG_FUNCTION(this); // 日志记录，可选
+
+  uint64_t result = 0; // 初始化 64 位结果
+
+  // 将 6 个字节按“高位到低位”顺序拼接进 64 位整数
+  // 注意：MAC 地址的第一个字节是最高位，对应 64 位整数的第 40-47 位
+  result |= static_cast<uint64_t>(m_address[0]) << 40; // 第 1 字节（0x11）
+  result |= static_cast<uint64_t>(m_address[1]) << 32; // 第 2 字节（0x22）
+  result |= static_cast<uint64_t>(m_address[2]) << 24; // 第 3 字节（0x33）
+  result |= static_cast<uint64_t>(m_address[3]) << 16; // 第 4 字节（0x44）
+  result |= static_cast<uint64_t>(m_address[4]) << 8;  // 第 5 字节（0x55）
+  result |= static_cast<uint64_t>(m_address[5]) << 0;  // 第 6 字节（0x66）
+
+  return result;
+}
+//----------------------------------------
+/*Mac48Address
+Mac48Address::FromU64(uint64_t value)
+{
+  uint8_t addr[6];
+  addr[0] = (value >> 40) & 0xff;
+  addr[1] = (value >> 32) & 0xff;
+  addr[2] = (value >> 24) & 0xff;
+  addr[3] = (value >> 16) & 0xff;
+  addr[4] = (value >> 8) & 0xff;S
+  addr[5] = (value >> 0) & 0xff;
+  return Mac48Address(addr);
+}*/
 
 std::ostream& operator<< (std::ostream& os, const Mac48Address & address)
 {

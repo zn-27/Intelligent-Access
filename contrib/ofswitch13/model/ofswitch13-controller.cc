@@ -22,6 +22,8 @@
 #include <ns3/uinteger.h>
 #include <ns3/tcp-socket-factory.h>
 #include "ofswitch13-controller.h"
+#include <iomanip>
+
 
 namespace ns3
 {
@@ -275,8 +277,8 @@ namespace ns3
 
       // //   创建并清空结构体
       struct adhocl_ext_protocol_config_request msg;
+     
       // memset(&msg, 0, sizeof(adhocl_ext_protocol_config_request));
-
       // ===== 固定字段值 =====
       msg.header.type = ADHOC_EXT_PROTOCOL_CONFIG_REQUEST; // OpenFlow扩展消息
       msg.vendor = 0x12345678;                             // 自定义厂商ID
@@ -305,6 +307,131 @@ namespace ns3
       }
     }
   }
+  //用于修改无线域的节点优先级
+  void
+  OFSwitch13Controller::SetRPtoAll()
+  { 
+    std::cout<<"准备发送 set0 报文到交换机..."<<std::endl;
+    NS_LOG_FUNCTION(this);
+
+    // 控制器发送到随机交换机.
+    //Ptr<const RemoteSwitch> swtch = GetRandomRemoteSwitch();
+    Ptr<const RemoteSwitch> swtch = GetRemoteSwitch(3);
+    NS_ASSERT(swtch != 0);
+    std::cout << "Sending set0 to switch: " << swtch->GetDpId() << std::endl;
+
+    struct adhocl_ext_test msg;
+
+    //==========固定字段============
+     msg.header.type = ADHOC_EXT_TEST;
+     msg.vendor      = 0x12345678;
+     msg.subtype     = 4001;
+
+    // 设置路由协议优先级
+     msg.p1 =100;   // AODV
+     msg.p2 = 50;    // OLSR
+     msg.p3 = 10;    // STATIC
+     msg.p4 = 0;     //可能的协议拓展
+     msg.p5 = 0;     //可能的协议的拓展
+    // 获取唯一 XID
+     uint32_t xid = GetNextXid();
+
+     // 调用已有的发送接口
+     int ret = SendToSwitch(swtch, (struct ofl_msg_header *)&msg, xid);
+
+     if (ret != 0)
+     {
+        NS_LOG_ERROR("发送 set0 报文失败, switch " << swtch->GetDpId());
+     }
+     else
+      {   
+        NS_LOG_INFO("成功发送 set0 报文到 switch " << swtch->GetDpId());
+      }
+
+  }
+  //用于修改单个节点的优先级
+  void
+  OFSwitch13Controller::SetRPtoSingle(uint64_t mac_address)
+  { 
+    std::cout<<"准备发送 set 报文到交换机..."<<std::endl;
+    NS_LOG_FUNCTION(this);
+
+    // 控制器发送到随机交换机.
+    //Ptr<const RemoteSwitch> swtch = GetRandomRemoteSwitch();
+    Ptr<const RemoteSwitch> swtch = GetRemoteSwitch(3);
+    NS_ASSERT(swtch != 0);
+    std::cout << "Sending set to switch: " << swtch->GetDpId() << std::endl;
+
+    struct adhocl_ext_protocol_set msg;
+
+    //==========固定字段============
+     msg.header.type = ADHOC_EXT_PROTOCOL_SET;
+     msg.vendor      = 0x12345678;
+     msg.subtype     = 8001;
+
+    // 设置路由协议优先级
+     msg.p1 = 100;   // AODV
+     msg.p2 = 50;    // OLSR
+     msg.p3 = 10;    // STATIC
+     msg.mac_ad = mac_address;
+     memset(msg.pad1, 0x00, 2);
+    // 获取唯一 XID
+     uint32_t xid = GetNextXid();
+
+     // 调用已有的发送接口
+     int ret = SendToSwitch(swtch, (struct ofl_msg_header *)&msg, xid);
+
+     if (ret != 0)
+     {
+        NS_LOG_ERROR("发送 set 报文失败, switch " << swtch->GetDpId());
+     }
+     else
+      {   
+        NS_LOG_INFO("成功发送 set 报文到 switch " << swtch->GetDpId());
+      }
+
+  }
+  //---------------------修改组网模式----------------------
+  void
+  OFSwitch13Controller::ChangeDeviceLogical(uint32_t op)
+  {
+    std::cout<<"准备域内无线节点切换组网模式--------"<<std::endl;
+    NS_LOG_FUNCTION(this);
+    // 需要决策模块自行选择op=1 or 2 or 3....
+
+    // 测试：直接发给c域的交换机
+        Ptr<const RemoteSwitch> swtch = GetRemoteSwitch(3);
+        NS_ASSERT(swtch != 0);
+
+        std::cout << "Sending logicalchange msg to switch: " << swtch->GetDpId() << std::endl;
+
+        struct adhocl_ext_changelogical msg;
+
+        //=======固定字段，后期可拓展数据======
+        msg.header.type = ADHOC_EXT_CHANGELOGICAL;
+        msg.vendor      = 0x12345678;
+        msg.subtype     = 7001;
+
+        msg.op          = op; 
+        msg.ip_address  = Ipv4Address("10.3.1.3").Get();
+      
+        // 获取唯一 XID
+        uint32_t xid = GetNextXid();
+
+        // 调用已有的发送接口
+        int ret = SendToSwitch(swtch, (struct ofl_msg_header *)&msg, xid);
+
+        if (ret != 0)
+        {
+            NS_LOG_ERROR("发送 changelogical 报文失败, switch " << swtch->GetDpId());
+        }
+        else
+        {   
+            NS_LOG_INFO("成功发送 changelogical 报文到 switch " << swtch->GetDpId());
+        }
+
+  }
+
   //-----------------------------------------
   void
   OFSwitch13Controller::SendBarrierRequest(Ptr<const RemoteSwitch> swtch)
@@ -554,6 +681,79 @@ namespace ns3
     ofl_msg_free((struct ofl_msg_header *)msg, 0);
     return 0;
   }
+  //新增handlers function-------------------
+  ofl_err
+  OFSwitch13Controller::HandleAdhocReply(struct adhocl_ext_protocol_config_reply *msg,
+                                        Ptr<const RemoteSwitch> swtch,uint32_t xid)                          
+  {
+    NS_LOG_FUNCTION(this << swtch << xid);
+    NS_LOG_INFO("Received ADHOC_EXT_PROTOCOL_CONFIG_REPLY from switch " << swtch->GetDpId());
+
+    std::cout << "\n[Controller] Received ADHOC_EXT_PROTOCOL_CONFIG_REPLY" <<
+                 " from switch"<<swtch->GetDpId()<< std::endl;
+
+    // // 如果需要，可保存或触发其他逻辑
+    // uint64_t dpId = swtch->GetDpId();
+    // // 创建一个 StaInfo
+    // StaInfo sta;
+    // sta.mac = msg->mac_ad;
+    // sta.p1 = msg->p1;
+    // sta.p2 = msg->p2;
+    // sta.p3 = msg->p3;
+    // sta.vendor = msg->vendor;
+    // sta.subtype = msg->subtype;
+    // sta.lastUpdate = Simulator::Now();
+    // // 插入或更新该 STA
+    // bool found = false;
+    // for (auto &existingSta : m_switchStaTable[dpId])
+    // {
+    //   if (existingSta.mac == sta.mac)
+    //   {
+    //     existingSta = sta; // 更新
+    //     found = true;
+    //     break;
+    //   }
+    // }
+
+    // if (!found)
+    // {
+    //   m_switchStaTable[dpId].push_back(sta); // 新增
+    // }
+    // std::cout << "[Controller] STA reply stored under switch " << dpId
+    //           << " (Total STA count = " << m_switchStaTable[dpId].size() << ")" << std::endl;
+
+    // //经过策略决策后调用set/test报文
+    // if(m_switchStaTable[dpId].size()==3)
+    // {
+    //   SetRPtoAll();
+    //   //SetRPtoSingle(sta.mac);
+    // }
+    // 释放消息资源
+    ofl_msg_free((struct ofl_msg_header *)msg, 0);
+    return 0;
+  }
+    // //------------------zi ding yi ---------------------------
+    // //自定义的交换机发给控制器的主机信息消息
+    ofl_err
+    OFSwitch13Controller::HandleAdhocExtStaInfo(
+          struct adhocl_ext_stainfo *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid)
+    {
+        NS_LOG_FUNCTION(this << swtch << xid);
+
+        // 基础实现，派生类可以覆盖此实现
+        ofl_msg_free((struct ofl_msg_header *)msg, 0);
+        return 0;
+    }
+    ofl_err
+    OFSwitch13Controller::HandleAdhocExtNodeStatusReport(
+          struct adhocl_ext_node_status_report *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid)
+    {
+        NS_LOG_FUNCTION(this << swtch << xid);
+
+         // 基础实现，派生类可以覆盖此实现
+        ofl_msg_free((struct ofl_msg_header *)msg, 0);
+        return 0;
+    }
   // --- END: Handlers functions -------
 
   /********** Private methods **********/
@@ -620,6 +820,43 @@ namespace ns3
       return HandleQueueGetConfigReply(
           (struct ofl_msg_queue_get_config_reply *)msg, swtch, xid);
 
+    //自定义分支case ADHOC_EXT_PROTOCOL_CONFIG_REPLY:
+    case ADHOC_EXT_PROTOCOL_CONFIG_REPLY:
+        return HandleAdhocReply(
+          (struct adhocl_ext_protocol_config_reply*)msg,swtch,xid);
+    //自定义分支2case ADHOC_EXT_STAINFO:
+    case ADHOC_EXT_STAINFO:
+     {
+      NS_LOG_INFO("Received STA message: ADHOC_EXT_STAINFO from switch");
+      std::cout<<"STA message lai le -------------------"<<std::endl;
+      return HandleAdhocExtStaInfo(
+        (struct adhocl_ext_stainfo*) msg, swtch,xid);
+     } 
+     //自定义分支3case adhocl_ext_node_status_report
+     case ADHOC_EXT_NODE_STATUS_REPORT:
+     {
+      std::cout<<"位置信息来了"<<std::endl;
+      struct adhocl_ext_node_status_report *rep = (adhocl_ext_node_status_report *)msg;
+      std::cout<<"ip: "<<rep->ip_address<<"空间坐标：x= "<<rep->x<<" y= "
+               <<rep->y<<" z= "<<rep->z<<std::endl;
+
+    // struct adhocl_ext_node_status_report *statusMsg = 
+    //     (struct adhocl_ext_node_status_report *)msg;
+
+    // // ========== 正确的IP地址转换（NS3 标准API） ==========
+    // Ipv4Address ip(statusMsg->ip_address);
+    // std::ostringstream ipStream;
+    // ipStream << ip;  // NS3 Ipv4Address 支持流输出，替代错误的 ToString()
+    // std::string ipStr = ipStream.str();
+
+    // // ========== 格式化输出（使用强转后的结构体） ==========
+
+    // std::cout << "节点IP:     " << ipStr << "空间坐标:   X=" << std::setw(4) << statusMsg->x << " m, "
+    //           << "Y=" << std::setw(4) << statusMsg->y << " m, "
+    //           << "Z=" << std::setw(4) << statusMsg->z << " m" << std::endl;
+    return HandleAdhocExtNodeStatusReport(
+        (struct adhocl_ext_node_status_report*) msg, swtch,xid);
+     }
     case OFPT_EXPERIMENTER:
     default:
       return ofl_error(OFPET_BAD_REQUEST, OFPGMFC_BAD_TYPE);
@@ -675,6 +912,35 @@ namespace ns3
     }
     NS_ABORT_MSG("Couldn't find the remote switch for this address.");
   }
+
+  //----------------test：随机获取一个交换机实例---------------
+  Ptr<const OFSwitch13Controller::RemoteSwitch>
+  OFSwitch13Controller::GetRandomRemoteSwitch()
+  { 
+      NS_LOG_FUNCTION(this);
+
+      // 1. 判空
+      if (m_dpIdSwMap.empty())
+      { 
+          std::cout<<"没有交换机与之相连"<<std::endl;
+          NS_LOG_WARN("GetRandomRemoteSwitch: no switches available.");
+          return nullptr;
+      }
+
+     // 2. 创建 ns-3 随机变量
+      Ptr<UniformRandomVariable> uv = CreateObject<UniformRandomVariable>();
+      uint32_t index = uv->GetInteger(0, m_dpIdSwMap.size()-1);
+
+      // 3. 定位到随机位置
+      auto it = m_dpIdSwMap.begin();
+      std::advance(it, index);
+
+      NS_LOG_INFO("Randomly selected switch dpid=" << it->first);
+
+      // 返回 RemoteSwitch
+      return it->second;
+  }
+
 
   bool
   OFSwitch13Controller::SocketRequest(Ptr<Socket> socket, const Address &from)

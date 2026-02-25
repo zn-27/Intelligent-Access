@@ -48,6 +48,7 @@ OFL_LOG_INIT(LOG_MODULE)
  * Functions for packing ofl structures to ofp wire format.
  ****************************************************************************/
 
+
 static int
 ofl_msg_pack_error(struct ofl_msg_error *msg, uint8_t **buf, size_t *buf_len)
 {
@@ -1073,8 +1074,8 @@ ofl_msg_pack_empty(struct ofl_msg_header *msg UNUSED, uint8_t **buf, size_t *buf
     *buf = (uint8_t *)calloc(1, *buf_len);
     return 0;
 }
-//-------自定义message的pack函数----------
-
+//---------------------------------自定义message的pack函数-------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------------------
 static int
 adhocl_ext_pack_protocol_config_request(struct adhocl_ext_protocol_config_request *msg, uint8_t **buf, size_t *buf_len)
 {
@@ -1118,8 +1119,9 @@ adhocl_ext_pack_protocol_config_reply(struct adhocl_ext_protocol_config_reply *m
     rep->p1 = htons(msg->p1);
     rep->p2 = htons(msg->p2);
     rep->p3 = htons(msg->p3);
-    memset(rep->pad1, 0x00, 2);
+    //memset(rep->pad1, 0x00, sizeof(rep->pad1));
     rep->mac_ad = hton64(msg->mac_ad);
+    rep->ip_ad  = htons(msg->ip_ad);
     return 0;
 }
 
@@ -1150,6 +1152,111 @@ adhocl_ext_pack_protocol_set(struct adhocl_ext_protocol_set *msg, uint8_t **buf,
     rep->mac_ad = hton64(msg->mac_ad);
     return 0;
 }
+
+static int
+adhocl_ext_pack_stainfo(struct adhocl_ext_stainfo *msg, uint8_t **buf, size_t *buf_len)
+{
+
+    struct adhocp_ext_stainfo *rep;
+    // 1. 计算消息长度
+    *buf_len = sizeof(struct adhocp_ext_stainfo);
+
+    // 2. 分配缓冲区内存并清零
+    *buf = (uint8_t *)calloc(1, *buf_len);
+    if (*buf == NULL)
+    {
+        return -1; // 内存分配失败
+    }
+
+    rep = (struct adhocp_ext_stainfo *)(*buf);
+    rep->subtype = htonl(msg->subtype);
+    // rep->subtype = htonl(msg->subtype);//问题
+    rep->vendor = htonl(msg->vendor);
+    rep->ip_address = htonl(msg->ip_address);
+    rep->mac_address = hton64(msg->mac_address);
+    rep->port_number = htonl(msg->port_number);
+    // 填充保留位（pad）
+    memset(rep->pad, 0x00, sizeof(rep->pad));
+
+    return 0;
+}
+//TEST
+static int
+adhocl_ext_pack_test(struct adhocl_ext_test *msg, uint8_t **buf, size_t *buf_len)
+{
+
+    struct adhocp_ext_test *rep;
+    // 1. 计算消息长度
+    *buf_len = sizeof(struct adhocp_ext_test);
+
+    // 2. 分配缓冲区内存并清零
+    *buf = (uint8_t *)calloc(1, *buf_len);
+    if (*buf == NULL)
+    {
+        return -1; // 内存分配失败
+    }
+
+    rep = (struct adhocp_ext_test *)(*buf);
+    rep->subtype = htonl(msg->subtype);
+    // rep->subtype = htonl(msg->subtype);//问题
+    rep->vendor = htonl(msg->vendor);
+    rep->ip_address= htonl(msg->ip_address);
+    rep->p1 = htonl(msg->p1);
+    rep->p2 = htonl(msg->p2);
+    rep->p3 = htonl(msg->p3);
+    rep->p4 = htonl(msg->p4);
+    rep->p5 = htonl(msg->p5);
+    
+    return 0;
+}
+static int
+adhocl_ext_pack_changelogical(struct adhocl_ext_changelogical *msg, uint8_t **buf, size_t *buf_len)
+{
+
+    struct adhocp_ext_changelogical *rep;
+    // 1. 计算消息长度
+    *buf_len = sizeof(struct adhocp_ext_changelogical);
+
+    // 2. 分配缓冲区内存并清零
+    *buf = (uint8_t *)calloc(1, *buf_len);
+    if (*buf == NULL)
+    {
+        return -1; // 内存分配失败
+    }
+
+    rep = (struct adhocp_ext_changelogical *)(*buf);
+    rep->subtype = htonl(msg->subtype);
+    // rep->subtype = htonl(msg->subtype);//问题
+    rep->vendor = htonl(msg->vendor);
+    rep->op = htonl(msg->op);
+    rep->ip_address = htonl(msg->ip_address);
+    return 0;
+}
+
+
+static int
+adhocl_ext_pack_node_status_report(struct adhocl_ext_node_status_report *msg, uint8_t **buf, size_t *buf_len)
+{
+    struct adhocp_ext_node_status_report *rep;
+
+    *buf_len = sizeof(struct adhocp_ext_node_status_report);
+    *buf = (uint8_t *)calloc(1, *buf_len);
+    if (*buf == NULL)
+    {
+        return -1; // 内存分配失败
+    }
+
+    rep = (struct adhocp_ext_node_status_report *)(*buf);
+    rep->vendor = htonl(msg->vendor);
+    rep->subtype = htonl(msg->subtype);
+    rep->ip_address = htonl(msg->ip_address);
+    rep->x = htonf(msg->x);
+    rep->y = htonf(msg->y);
+    rep->z = htonf(msg->z);
+
+    return 0;
+}
+
 //----------------------------------------
 
 int ofl_msg_pack(struct ofl_msg_header *msg, uint32_t xid, uint8_t **buf, size_t *buf_len, struct ofl_exp *exp)
@@ -1332,7 +1439,27 @@ int ofl_msg_pack(struct ofl_msg_header *msg, uint32_t xid, uint8_t **buf, size_t
         error = adhocl_ext_pack_protocol_set((struct adhocl_ext_protocol_set *)msg, buf, buf_len);
         break;
     }
-
+    //----------------------------- zi ding yi test---------------------------
+    case ADHOC_EXT_STAINFO:
+    {
+        error = adhocl_ext_pack_stainfo((struct adhocl_ext_stainfo *)msg, buf, buf_len);
+        break;
+    }
+    case ADHOC_EXT_TEST:
+    {
+        error = adhocl_ext_pack_test((struct adhocl_ext_test *)msg, buf, buf_len);
+        break;
+    }
+    case ADHOC_EXT_CHANGELOGICAL:
+    {
+        error = adhocl_ext_pack_changelogical((struct adhocl_ext_changelogical *)msg, buf, buf_len);
+        break;
+    }
+    case ADHOC_EXT_NODE_STATUS_REPORT:
+    {
+        error = adhocl_ext_pack_node_status_report((struct adhocl_ext_node_status_report *)msg,buf,buf_len);
+        break;
+    }
     //------------------------------------------------
     default:
     {

@@ -61,7 +61,14 @@
         "ofl-structs.h": "c",
         "ofl-messages.h": "c",
         "in.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "bit": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "ranges": "cpp",
+        "stop_token": "cpp",
+        "hash_map": "cpp"
     },
-    "C_Cpp.dimInactiveRegions": false
+    "C_Cpp.dimInactiveRegions": false,
+    "C_Cpp.errorSquiggles": "enabled"
 }

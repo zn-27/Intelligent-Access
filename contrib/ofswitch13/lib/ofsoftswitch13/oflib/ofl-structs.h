@@ -49,6 +49,14 @@ struct ofl_exp;
  * Supplementary structure definitions.
  ****************************************************************************/
 
+//----------------------zi ding yi---------------
+struct ofl_position
+{
+    float x;
+    float y;
+    float z;
+};
+
 struct ofl_packet_queue {
     uint32_t   queue_id; /* id for the specific queue. */
     size_t                         properties_num;

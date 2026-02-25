@@ -154,7 +154,11 @@ enum ofp_type
     //-------------------------
     ADHOC_EXT_PROTOCOL_CONFIG_REQUEST = 30, // 自定义的
     ADHOC_EXT_PROTOCOL_CONFIG_REPLY = 31,   //
-    ADHOC_EXT_PROTOCOL_SET = 32             //
+    ADHOC_EXT_PROTOCOL_SET = 32,           //
+    ADHOC_EXT_STAINFO = 33 ,              //交换机发给controller
+    ADHOC_EXT_TEST = 34 ,                //TEST
+    ADHOC_EXT_CHANGELOGICAL = 35 ,          //组网模式切换
+    ADHOC_EXT_NODE_STATUS_REPORT = 36
     //--------------------------------
 };
 
@@ -240,8 +244,9 @@ struct adhocp_ext_protocol_config_reply
     uint16_t p1;
     uint16_t p2;
     uint16_t p3;
-    uint8_t pad1[2];
+    //uint8_t pad1[2];
     uint64_t mac_ad;
+    uint32_t ip_ad;
 };
 
 struct adhocp_ext_protocol_set
@@ -254,6 +259,53 @@ struct adhocp_ext_protocol_set
     uint16_t p3;
     uint8_t pad1[2];
     uint64_t mac_ad;
+};
+
+// 自定义 STA 信息收集报文结构
+struct adhocp_ext_stainfo
+{
+    struct ofp_header header;    // OpenFlow 报文头部
+    uint32_t vendor;             // 自定义厂商 ID
+    uint32_t subtype;            // 报文子类型（用于标识该类型的报文）
+    uint64_t mac_address;        // STA 的 MAC 地址
+    uint32_t ip_address;         // STA 的 IP 地址（4字节，IPv4）
+    uint32_t port_number;        // 交换机端口号
+    uint8_t pad[4];
+};
+//test--修改路由协议优先级。
+struct adhocp_ext_test
+{
+    struct ofp_header header;
+    uint32_t vendor;
+    uint32_t subtype;
+    uint32_t ip_address; 
+    uint32_t p1;
+    uint32_t p2;
+    uint32_t p3;
+    uint32_t p4;
+    uint32_t p5;
+};
+//通知切换组网模式（打开ADHoc的各种功能接口）
+struct adhocp_ext_changelogical
+{
+    struct ofp_header header;
+    uint32_t vendor;
+    uint32_t subtype;
+    uint32_t op;        // 0 = DOWN, 1 = UP   
+    uint32_t ip_address ; //
+
+};
+//定时发送节点的位置信息
+struct adhocp_ext_node_status_report
+{
+    struct ofp_header header;
+    uint32_t vendor;
+    uint32_t subtype;  
+    uint32_t ip_address ; 
+    float x;
+    float y;
+    float z;
+
 };
 
 //-------------------------------------------------------------------

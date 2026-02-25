@@ -71,6 +71,7 @@ OFSwitch13SocketHandler::SendMessage (Ptr<Packet> packet)
   // Insert this message into tx queue and try to forward it to the socket.
   m_txQueue.push (packet);
   Send (m_socket, m_socket->GetTxAvailable ());
+  //td::cout<<"Send (m_socket, m_socket->GetTxAvailable ())"<<*packet<<std::endl;
   return 0;
 }
 

@@ -32,7 +32,8 @@
 #include "ns3/trace-source-accessor.h"
 #include "csma-net-device.h"
 #include "csma-channel.h"
-
+//-------------------------------------
+#include "ns3/ap-app-module.h"
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("CsmaNetDevice");
@@ -1083,6 +1084,75 @@ int64_t
 CsmaNetDevice::AssignStreams (int64_t stream)
 {
   return m_backoff.AssignStreams (stream);
+}
+//-------------------zi-------ding------yi----------------
+// 获取 AP 节点上的 replies
+std::vector<Reply>
+CsmaNetDevice::GetApReplies()
+{
+    std::vector<Reply> replies;
+
+    Ptr<Node> node = GetNode();
+    if (!node)
+    {
+        std::cout << "jie--dian--bu--cun--zai" << std::endl;
+        return replies;
+    }
+
+    // 遍历节点应用
+    for (uint32_t i = 0; i < node->GetNApplications(); ++i)
+    {
+        Ptr<ApProtocolInfoApp> app = DynamicCast<ApProtocolInfoApp>(node->GetApplication(i));
+        if (app)
+        {
+            replies = app->CollectStaProtocolReplies();
+            if (replies.empty())
+            {
+                std::cout << "ApProtocolInfoApp don't have any reply" << std::endl;
+            }
+            return replies;
+        }
+    }
+
+    return replies;
+}
+
+// CsmaNetDevice: 通过 AP 实例找到 ApProtocolInfoApp 并更新域内 STA 路由优先级
+void
+CsmaNetDevice::SetPriority(int32_t newAodvPri, int32_t newOlsrPri,int32_t newStaticPri)
+{
+    Ptr<Node> node = GetNode();
+    if (!node)
+    {
+        std::cout << "[CsmaNetDevice] Node not exist!" << std::endl;
+        return;
+    }
+    bool foundApp = false;
+
+    // 遍历节点上的所有应用，找到 AP 的 ApProtocolInfoApp
+    for (uint32_t i = 0; i < node->GetNApplications(); ++i)
+    {
+        Ptr<ApProtocolInfoApp> app =
+            DynamicCast<ApProtocolInfoApp>(node->GetApplication(i));
+
+        if (app)
+        {
+            std::cout << "[CsmaNetDevice] Found ApProtocolInfoApp, updating STA routing priorities…" 
+                      << std::endl;
+
+            // ⭐调用 AP 应用里的函数
+            app->UpdateStaRoutingPriority(newAodvPri, newOlsrPri, newStaticPri);
+
+            foundApp = true;
+            break;
+        }
+    }
+
+    if (!foundApp)
+    {
+        std::cout << "[CsmaNetDevice] Error: Cannot find ApProtocolInfoApp on this AP/Node!" 
+                  << std::endl;
+    }
 }
 
 } // namespace ns3

@@ -11,7 +11,6 @@
  * -
  * 构建：确保 ns-3 已构建并启用 ofswitch13 模块。
  */
-// AODV (反应式)	OLSR (主动式)
 #include <ns3/core-module.h>
 #include <ns3/network-module.h>
 #include <ns3/csma-module.h>
@@ -317,6 +316,29 @@ int main(int argc, char *argv[])
 
     mac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer adhocDevsC = wifi.Install(phyC, mac, StaC);
+
+
+    // 在这里添加AP应用创建代码：
+// 为域A的AP节点创建应用
+for (uint32_t i = 0; i < ApA.GetN(); ++i) {
+    Ptr<ApProtocolInfoApp> apAppA = CreateObject<ApProtocolInfoApp>();
+    ApA.Get(i)->AddApplication(apAppA);
+    apAppA->SetStartTime(Seconds(0.0));
+    apAppA->SetStopTime(Seconds(simTime - 1.0));
+}
+
+// 为域B的AP节点创建应用
+Ptr<ApProtocolInfoApp> apAppB = CreateObject<ApProtocolInfoApp>();
+ApB.Get(0)->AddApplication(apAppB);
+apAppB->SetStartTime(Seconds(0.0));
+apAppB->SetStopTime(Seconds(simTime - 1.0));
+
+// 为域C的AP节点创建应用
+Ptr<ApProtocolInfoApp> apAppC = CreateObject<ApProtocolInfoApp>();
+ApC.Get(0)->AddApplication(apAppC);
+apAppC->SetStartTime(Seconds(0.0));
+apAppC->SetStopTime(Seconds(simTime - 1.0));
+
 
     // 合并所有sta设备
     NetDeviceContainer allStaDevices;
@@ -810,12 +832,34 @@ int main(int argc, char *argv[])
         std::cout << "注册ARP条目：ApC[0] 网关 " << apCIp << " -> " << apCMac << std::endl;
     }
 
+    
+// 添加获取AP和STA消息的调度函数
+Ptr<OFSwitch13Device> sw1Device = sw1->GetObject<OFSwitch13Device>();
+Ptr<OFSwitch13Device> sw2Device = sw2->GetObject<OFSwitch13Device>();
+Ptr<OFSwitch13Device> sw3Device = sw3->GetObject<OFSwitch13Device>();
+
+
+if (sw1Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
+}
+if (sw2Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
+}
+if (sw3Device) {
+    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
+}
+
     // LogComponentEnable("OFSwitch13Controller", LOG_LEVEL_DEBUG);
     // 两秒时设置控制器路由优先级
     Simulator::Schedule(Seconds(2.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.1), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.3), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
+     //组网模式
+    Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
+    //路由协议
+    Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
+    
     FlowMonitorHelper flowmonHelper;
 
     // 只监控 STA 节点

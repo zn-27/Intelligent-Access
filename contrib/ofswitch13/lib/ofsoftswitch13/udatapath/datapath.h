@@ -37,7 +37,7 @@
  */
 
 #ifndef DATAPATH_H
-#define DATAPATH_H 1
+#define DATAPATH_H 
 
 
 #include <stdbool.h>

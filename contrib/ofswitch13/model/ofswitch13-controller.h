@@ -29,6 +29,17 @@
 
 namespace ns3
 {
+  // 存放单个 STA 信息
+  struct StaInfo
+  {
+    uint64_t mac;    // STA MAC 地址（uint64_t 或 Mac48Address）
+    uint16_t p1;
+    uint16_t p2;
+    uint16_t p3;
+    uint32_t vendor;
+    uint32_t subtype;
+    Time lastUpdate; // 更新时间
+  };
 
   /**
    * \ingroup ofswitch13
@@ -264,6 +275,16 @@ namespace ns3
      * \return 0 if everything's ok, otherwise an error number.
      */
     //\{
+    //--------------------自定义用于优先级切换-----------------------------------------
+    ofl_err HandleAdhocReply(
+        struct adhocl_ext_protocol_config_reply *msg,Ptr<const RemoteSwitch> swtch,uint32_t xid);
+    //--------------------------------------------------------------------------------
+    // 自定义STA信息收集处理函数
+    virtual ofl_err HandleAdhocExtStaInfo(
+        struct adhocl_ext_stainfo *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid);
+    virtual ofl_err HandleAdhocExtNodeStatusReport(
+        struct adhocl_ext_node_status_report *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid);
+    //--------------------------------------------------------------------------------
     ofl_err HandleEchoRequest(
         struct ofl_msg_echo *msg, Ptr<const RemoteSwitch> swtch,
         uint32_t xid);
@@ -322,7 +343,9 @@ namespace ns3
     //\}
 
     void SetRP();
-
+    void SetRPtoAll();
+    void ChangeDeviceLogical(uint32_t op);
+    void SetRPtoSingle(uint64_t mac_address);
     // private:
     /**
      * Called when an OpenFlow message is received from a switch.
@@ -348,6 +371,13 @@ namespace ns3
      * \return The remote switch.
      */
     Ptr<RemoteSwitch> GetRemoteSwitch(Address address);
+    
+    /**
+     * @brief 按 dpId 获取与控制器相连的交换机实例
+     * @param dpId 交换机的 datapath ID
+     * @return 匹配的交换机实例（空指针表示未找到）
+     */
+    Ptr<const RemoteSwitch> GetRandomRemoteSwitch();
 
     /**
      * \name Socket callbacks
@@ -394,6 +424,8 @@ namespace ns3
     DpIdCmdMap_t m_commandsMap;   //!< Commands scheduled for execution.
     AddrSwMap_t m_addrSwMap;      //!< Registered switches by address.
     DpIdSwMap_t m_dpIdSwMap;      //!< Registered switches by datapath id.
+    //----------------------------------------------------------------------
+    std::map<uint64_t, std::vector<StaInfo>> m_switchStaTable;
   };
 
 } // namespace ns3

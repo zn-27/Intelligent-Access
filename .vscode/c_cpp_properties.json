@@ -1,0 +1,31 @@
+
+// 复制全部内容, 替换 c_cpp_properties.json 的全部内容即可
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            // 代码提示需要用到的头文件都在这个文件夹里, 所以修改该项
+            "includePath": [
+                "${workspaceFolder}/build/**",
+                "${workspaceFolder}/**",
+                "/home/abc/ns3/adhoc.copy2/ADHOC-base-SDN2/build/ns3",
+                "/home/abc/ns3/adhoc.copy2/ADHOC-base-SDN2/contrib/ofswitch13",
+                "/home/abc/ns3/adhoc.copy2/ADHOC-base-SDN2/contrib/ofswitch13/lib/ofsoftswitch13"
+        ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64",
+            "browse": {  // 可选：增强文件浏览索引（解决部分"未定义"误报）
+                "path": [
+                    "${workspaceFolder}/**",
+                    "/home/abc/ns3/adhoc.copy2/ADHOC-base-SDN2/build/ns3"  // 和上面 ns3 路径一致
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            }
+        }
+    ],
+    "version": 4
+} 
