@@ -2434,8 +2434,11 @@ namespace ns3
       }
 
       // SmartAodv: Connect to physical layer for RSSI/SNR monitoring
-      Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/MonitorSnifferRx",
-                                    MakeCallback(&RoutingProtocol::PhyRxStats, this));
+      // DISABLED: Global PHY monitoring causes crashes with mobile nodes
+      // The PHY callback gets triggered for ALL nodes, leading to invalid state access
+      // when nodes move out of range. RSSI is now simulated in RecvAodv instead.
+      // Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/MonitorSnifferRx",
+      //                               MakeCallback(&RoutingProtocol::PhyRxStats, this));
 
       // Cluster management: Start periodic cluster check (every 1 second)
       m_clusterCheckEvent = Simulator::Schedule(Seconds(1.0),
