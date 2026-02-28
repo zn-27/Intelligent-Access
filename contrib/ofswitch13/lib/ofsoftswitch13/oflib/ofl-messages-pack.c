@@ -1250,11 +1250,44 @@ adhocl_ext_pack_node_status_report(struct adhocl_ext_node_status_report *msg, ui
     rep->vendor = htonl(msg->vendor);
     rep->subtype = htonl(msg->subtype);
     rep->ip_address = htonl(msg->ip_address);
-    rep->x = htonf(msg->x);
-    rep->y = htonf(msg->y);
-    rep->z = htonf(msg->z);
+    rep->x = DoubleToU64(msg->x);
+    rep->y = DoubleToU64(msg->y);
+    rep->z = DoubleToU64(msg->z);
 
     return 0;
+}
+
+int
+adhocl_ext_pack_flow_status_report(struct adhocl_ext_flow_status_report *msg, uint8_t **buf, size_t *buf_len)
+{
+    struct adhocp_ext_flow_status_report *rep;
+
+    // 1. 设置长度并分配内存 (32 字节)
+    *buf_len = sizeof(struct adhocp_ext_flow_status_report);
+    *buf = (uint8_t *)calloc(1, *buf_len);
+    if (*buf == NULL)
+    {
+        return -1; // 内存分配失败
+    }
+
+    // 2. 指向协议结构体起始位置
+    rep = (struct adhocp_ext_flow_status_report *)(*buf);
+
+    // 3. 字节序转换与填充 (主机字节序 -> 网络字节序)
+    // 注意：header 的打包通常由上级函数处理，这里填充 payload 部分
+    rep->vendor     = htonl(msg->vendor);
+    rep->subtype    = htonl(msg->subtype);
+    
+    // 32 位整型转换
+    rep->throughput = htonl(msg->throughput);
+    rep->delay      = htonl(msg->delay);
+    rep->jitter     = htonl(msg->jitter);
+    
+    // 16 位短整型转换
+    rep->port       = htons(msg->port);
+    rep->loss_rate  = htons(msg->loss_rate);
+
+    return 0; // 打包成功
 }
 
 //----------------------------------------
@@ -1458,6 +1491,11 @@ int ofl_msg_pack(struct ofl_msg_header *msg, uint32_t xid, uint8_t **buf, size_t
     case ADHOC_EXT_NODE_STATUS_REPORT:
     {
         error = adhocl_ext_pack_node_status_report((struct adhocl_ext_node_status_report *)msg,buf,buf_len);
+        break;
+    }
+    case ADHOC_EXT_FLOW_STATUS_REPORT:
+    {
+        error = adhocl_ext_pack_flow_status_report((struct adhocl_ext_flow_status_report *)msg,buf,buf_len);
         break;
     }
     //------------------------------------------------

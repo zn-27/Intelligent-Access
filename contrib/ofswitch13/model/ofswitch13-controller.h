@@ -284,6 +284,8 @@ namespace ns3
         struct adhocl_ext_stainfo *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid);
     virtual ofl_err HandleAdhocExtNodeStatusReport(
         struct adhocl_ext_node_status_report *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid);
+    virtual ofl_err HandleAdhocExtFlowStatusReport(
+        struct adhocl_ext_flow_status_report *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid);
     //--------------------------------------------------------------------------------
     ofl_err HandleEchoRequest(
         struct ofl_msg_echo *msg, Ptr<const RemoteSwitch> swtch,

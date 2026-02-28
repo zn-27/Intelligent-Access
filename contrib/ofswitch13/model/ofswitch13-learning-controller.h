@@ -8,6 +8,30 @@
 
 namespace ns3
 {
+
+    struct LinkStats {
+    uint64_t mac_address;
+    
+    // 当前值
+    double throughput;    // 对应报错中的 s.throughput
+    double lossRate;      // 对应报错中的 s.lossRate
+    double delay;         // 对应报错中的 s.delay
+    double jitter;
+    
+    // 历史值（用于计算奖励的增量 Improvement）
+    double prevThroughput; // 对应报错中的 s.prevThroughput
+    double prevLossRate;   // 对应报错中的 s.prevLossRate
+    double prevDelay;      // 对应报错中的 s.prevDelay
+
+    // 你之前定义的其他字段可以保留
+    uint32_t rxPackets;
+    uint32_t txPackets;
+    double   throughputKbps; 
+    double   lastRssi;       
+};
+
+
+
     // 主机信息结构体：IP、MAC、端口（域内主机）
     struct HostInfo {
         Ipv4Address ip;       // 主机IP地址
@@ -38,6 +62,8 @@ namespace ns3
     // 网络状态结构体（仅保留平均距离）
     struct NetworkState {
         float averageNodeDistance;  // 节点平均距离（仅用这个判断）
+        double totalThroughput;
+        double maxLossRate;
     };
 
     // 前向声明，解决循环依赖
@@ -63,6 +89,7 @@ namespace ns3
         double alpha;    // 学习率
         double gamma;    // 折扣因子
         double epsilon;  // 探索率
+        double baseEpsilon; // 存储基础探索率，用于动态计算ε
         std::vector<std::vector<double>> qTable; // Q表：state x action
         // 将状态转换为ID（0=远距离，1=近距离）
         int StateToId(const NetworkState& state);
@@ -73,6 +100,9 @@ namespace ns3
     class OFSwitch13LearningController : public OFSwitch13Controller
     {
     public:
+
+        // 必须在这里声明这个变量，否则报错 1016:24
+        std::vector<LinkStats> m_linkStats;
         OFSwitch13LearningController();
         virtual ~OFSwitch13LearningController();
 
@@ -126,18 +156,24 @@ namespace ns3
 
 
 
-        // 新增：声明 HandleAdhocExtNodeStatusReport（参数类型暂时先和 .cc 一致，后续解决权限问题）
+        //  HandleAdhocExtNodeStatusReport
         ofl_err HandleAdhocExtNodeStatusReport(
            struct adhocl_ext_node_status_report *msg, Ptr<const RemoteSwitch> swtch, 
            uint32_t xid);
-
+        //  HandleAdhocExtFlowStatusReport
+        ofl_err HandleAdhocExtFlowStatusReport(
+           struct adhocl_ext_flow_status_report *msg, Ptr<const RemoteSwitch> swtch, 
+           uint32_t xid);            
         // 静态距离阈值（公有，供Q学习类直接访问）
-        static constexpr float DISTANCE_THRESHOLD = 50.0f; 
+        static constexpr float DISTANCE_THRESHOLD = 25.0f; 
         
     protected:
         void HandshakeSuccessful(Ptr<const RemoteSwitch> swtch);
 
+        // 定义模式：0 代表 MULTI, 1 代表 ADHOC
+        int m_currentMode;
 
+        
     private:
         // ARP解析表（网关IP到MAC的映射）
         typedef std::map<Ipv4Address, Mac48Address> IpMacMap_t;

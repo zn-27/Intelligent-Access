@@ -118,34 +118,20 @@ ntoh64(uint64_t n) {
 #endif
 }
 //zi ding yi
-static inline uint32_t
-htonf(float f)
+static uint64_t
+DoubleToU64(double host_double)
 {
-#if __BYTE_ORDER == __BIG_ENDIAN
-    uint32_t n;
-    memcpy(&n, &f, sizeof(n));
-    return n;
-#else
-    uint32_t n;
-    memcpy(&n, &f, sizeof(n));
-    return htonl(n);
-#endif
+    uint64_t host_uint64 = 0;
+    memcpy(&host_uint64, &host_double, sizeof(double));
+    return host_uint64; // 返回主机序的 uint64
 }
 
-static inline float
-ntohf(uint32_t n)
+static double
+U64ToDouble(uint64_t host_uint64)
 {
-#if __BYTE_ORDER == __BIG_ENDIAN
-    float f;
-    memcpy(&f, &n, sizeof(f));
-    return f;
-#else
-    uint32_t host = ntohl(n);
-    float f;
-    memcpy(&f, &host, sizeof(f));
-    return f;
-#endif
+    double host_double = 0.0;
+    memcpy(&host_double, &host_uint64, sizeof(double));
+    return host_double; // 返回主机序的 double
 }
-
 
 #endif /* OFL_UTILS_H */

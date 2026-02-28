@@ -727,6 +727,156 @@ namespace ns3
 
   }
 
+void
+OFSwitch13Device::CollectFlowStats()
+{ 
+    NS_LOG_FUNCTION(this);
+    if (m_controllers.empty()) return;
+    Ptr<RemoteController> remoteCtrl = m_controllers.back();
+
+    // 遍历交换机所有端口，寻找连接的 AP 节点
+    for (auto const &p : m_ports)
+    {
+        Ptr<NetDevice> swPortDev = p->GetPortDevice();
+        Ptr<Channel> ch = swPortDev->GetChannel();
+        
+        // 只处理点对点连接
+        if (!ch || ch->GetNDevices() != 2) continue;
+
+        Ptr<Node> otherNode = nullptr;
+        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+        {
+            Ptr<NetDevice> dev = ch->GetDevice(i);
+            if (dev != swPortDev)
+            {
+                otherNode = dev->GetNode();
+                break;
+            }
+        }
+
+        if (!otherNode) continue;
+
+        // 寻找 AP 节点上挂载的统计应用
+        Ptr<ApProtocolInfoApp> apApp = nullptr;
+        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++) {
+            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+            if (apApp) break;
+        }
+
+        if (!apApp) continue;
+
+        // 获取增量流量数据 (包含吞吐量、延迟、抖动、丢包)
+        std::vector<FlowStatsRecord> flowStats = apApp->CollectFlowStats();
+
+        for (const auto& flow : flowStats) 
+        {
+            // 使用全新的 37 号消息结构体 (ADHOC_EXT_FLOW_STATUS_REPORT)
+            struct adhocl_ext_flow_status_report rep; 
+            memset(&rep, 0, sizeof(rep));
+
+            // 填充 OpenFlow 实验者消息头
+            rep.header.type = ADHOC_EXT_FLOW_STATUS_REPORT; // 应该是 37
+            rep.vendor = 0x12345678;
+
+            // 填充多维统计数据
+            rep.port = flow.port;
+            rep.throughput = flow.throughputKbps;
+            rep.delay = flow.delayMs;
+            rep.jitter = flow.jitterMs;
+            rep.loss_rate = flow.lossRate;
+
+            // 转换成 NS-3 Packet 并发送给控制器
+            Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+            
+            if (packet != nullptr) 
+            {
+                // std::cout << "[Switch] 上报链路流状态: Port=" << flow.port 
+                //           << " Thr=" << flow.throughputKbps << "Kbps"
+                //           << " Loss=" << (flow.lossRate / 100.0) << "%"
+                //           << " Delay=" << flow.delayMs << "ms" << std::endl;
+                
+                SendToController(packet, remoteCtrl);
+            }
+        }
+    }
+}
+// void
+// OFSwitch13Device::CollectFlowStats()
+// { 
+//     NS_LOG_FUNCTION(this);
+//     if (m_controllers.empty()) return;
+//     Ptr<RemoteController> remoteCtrl = m_controllers.back();
+
+//     // 遍历交换机所有端口
+//     for (auto const &p : m_ports)
+//     {
+//         // --- 补全寻找邻居节点的逻辑 ---
+//         Ptr<NetDevice> swPortDev = p->GetPortDevice();
+//         Ptr<Channel> ch = swPortDev->GetChannel();
+        
+//         // 只处理点对点连接（1对1）
+//         if (!ch || ch->GetNDevices() != 2) continue;
+
+//         Ptr<Node> otherNode = nullptr;
+//         for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+//         {
+//             Ptr<NetDevice> dev = ch->GetDevice(i);
+//             if (dev != swPortDev)
+//             {
+//                 otherNode = dev->GetNode();
+//                 break;
+//             }
+//         }
+
+//         if (!otherNode) continue;
+//         // ------------------------------
+
+//         // 寻找 AP 上的应用
+//         Ptr<ApProtocolInfoApp> apApp = nullptr;
+//         for (uint32_t i = 0; i < otherNode->GetNApplications(); i++) {
+//             apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+//             if (apApp) break;
+//         }
+
+//         if (!apApp) continue;
+
+//         // 获取增量流量数据
+//         std::vector<FlowStatsRecord> flowStats = apApp->CollectFlowStats();
+
+//         for (const auto& flow : flowStats) 
+//         {
+//             if (flow.ip_ad == 0) continue;
+
+//             // 使用已经稳定运行的位置信息结构体
+//             struct adhocl_ext_node_status_report rep; 
+//             memset(&rep, 0, sizeof(rep));
+
+//             rep.header.type = ADHOC_EXT_NODE_STATUS_REPORT; 
+//             rep.vendor = 0x12345678;
+//             rep.subtype = 8002; // 8002 代表流量数据
+            
+//             rep.ip_address = flow.ip_ad;
+            
+//             // 将吞吐量存入 x，端口存入 y
+//             rep.x = (float)flow.throughputKbps; 
+//             rep.y = (float)flow.port;
+//             rep.z = 0.0f;
+
+//             Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+            
+//             if (packet != nullptr) 
+//             {
+//                 std::cout << "[Switch] 发送流量统计: IP=" << Ipv4Address(flow.ip_ad) 
+//                 << " Thr=" << flow.throughputKbps << " Kbps" 
+//                 << " Port=" << flow.port << std::endl;
+//                 SendToController(packet, remoteCtrl);
+//             }
+//         }
+//     }
+// }
+
+
+
 
   void
   OFSwitch13Device::ReceiveFromSwitchPort(Ptr<Packet> packet, uint32_t portNo,
