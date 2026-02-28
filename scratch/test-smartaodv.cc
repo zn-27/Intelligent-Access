@@ -4,7 +4,7 @@
  *
  * This script tests SmartAODV routing protocol with link quality monitoring
  */
-
+// go go go
 #include <iostream>
 #include <cmath>
 #include "ns3/core-module.h"
@@ -18,7 +18,9 @@
 
 // Include SmartAODV and AODV helpers
 #include "ns3/smart-aodv-helper.h"
+#include "ns3/smart-aodv-v2-helper.h"
 #include "ns3/aodv-helper.h"
+#include "ns3/harp-helper.h"
 
 using namespace ns3;
 
@@ -65,6 +67,11 @@ bool SmartAodvTest::Configure(int argc, char **argv)
 
 void SmartAodvTest::Run()
 {
+  // Set fixed random seed for reproducibility
+  RngSeedManager::SetSeed(2); // 1,2,3,4,5,6,7,8,9,10
+  // 42
+  RngSeedManager::SetRun(1);
+
   NS_LOG_UNCOND("SmartAODV Intelligent Sensing Test");
   NS_LOG_UNCOND("Number of nodes: " << size);
   NS_LOG_UNCOND("Grid step: " << step);
@@ -108,11 +115,12 @@ void SmartAodvTest::Run()
 
   // Try SmartAODV first, fall back to regular AODV
   SmartAodvHelper smartAodv;
+  SmartAodvV2Helper smartAodv2;
   AodvHelper aodv;
-
+  HarpHelper harp;
   Ipv4ListRoutingHelper list;
-  list.Add(smartAodv, 20); // Higher priority for SmartAODV
-  // list.Add(aodv, 10);      // Fallback to regular AODV
+  // list.Add(harp, 20); // Higher priority for SmartAODV
+  list.Add(aodv, 10); // Using Q-learning Smart-AODV-V2
 
   internet.SetRoutingHelper(list);
   internet.Install(nodes);
