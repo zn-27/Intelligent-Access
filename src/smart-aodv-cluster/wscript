@@ -1,0 +1,33 @@
+## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    module = bld.create_ns3_module('smart-aodv-cluster', ['internet', 'wifi'])
+    module.includes = '.'
+    module.source = [
+        'model/smart-aodv-cluster-id-cache.cc',
+        'model/smart-aodv-cluster-dpd.cc',
+        'model/smart-aodv-cluster-rtable.cc',
+        'model/smart-aodv-cluster-rqueue.cc',
+        'model/smart-aodv-cluster-packet.cc',
+        'model/smart-aodv-cluster-neighbor.cc',
+        'model/smart-aodv-cluster-cluster.cc',
+        'model/smart-aodv-cluster-routing-protocol.cc',
+        'helper/smart-aodv-cluster-helper.cc',
+        ]
+
+    headers = bld(features='ns3header')
+    headers.module = 'smart-aodv-cluster'
+    headers.source = [
+        'model/smart-aodv-cluster-id-cache.h',
+        'model/smart-aodv-cluster-dpd.h',
+        'model/smart-aodv-cluster-rtable.h',
+        'model/smart-aodv-cluster-rqueue.h',
+        'model/smart-aodv-cluster-packet.h',
+        'model/smart-aodv-cluster-neighbor.h',
+        'model/smart-aodv-cluster-cluster.h',
+        'model/smart-aodv-cluster-routing-protocol.h',
+        'helper/smart-aodv-cluster-helper.h',
+        ]
+
+    # Temporarily disable Python bindings
+    # bld.ns3_python_bindings()

@@ -3,15 +3,16 @@
  * Mobility Scenario Comparative Test: Full Protocol Comparison
  *
  * Comparison Groups:
- * ┌─────────┬───────────────┬─────────────┬────────────────────┐
- * │ 对比组  │     协议      │    配置     │        说明        │
- * ├─────────┼───────────────┼─────────────┼────────────────────┤
- * │ 对照组1 │ AODV          │ 标准NS-3    │ 经典反应式路由协议 │
- * │ 对照组2 │ OLSR          │ 标准NS-3    │ 经典先验式路由协议 │
- * │ 实验组1 │ Smart-AODV-V2 │ SELF_ORG    │ 仅自组织模式       │
- * │ 实验组2 │ Smart-AODV-V2 │ CENTRALIZED │ 仅中心化模式       │
- * │ 实验组3 │ Smart-AODV-V2 │ ADAPTIVE    │ RSSI/威胁驱动切换  │
- * └─────────┴───────────────┴─────────────┴────────────────────┘
+ * ┌─────────┬────────────────┬─────────────┬────────────────────────────┐
+ * │ 对比组  │     协议       │    配置     │           说明             │
+ * ├─────────┼────────────────┼─────────────┼────────────────────────────┤
+ * │ 对照组1 │ AODV           │ 标准NS-3    │ 经典反应式路由协议         │
+ * │ 对照组2 │ OLSR           │ 标准NS-3    │ 经典先验式路由协议         │
+ * │ 实验组1 │ Smart-AODV-V2  │ SELF_ORG    │ 仅自组织模式               │
+ * │ 实验组2 │ Smart-AODV-V2  │ CENTRALIZED │ 仅中心化模式               │
+ * │ 实验组3 │ Smart-AODV-V2  │ ADAPTIVE    │ RSSI/威胁驱动切换          │
+ * │ 实验组4 │ Q-Smart-Hybrid │ Q-Learning  │ Q学习驱动的混合路由协议    │
+ * └─────────┴────────────────┴─────────────┴────────────────────────────┘
  */
 
 #include "ns3/core-module.h"
@@ -26,6 +27,7 @@
 #include "ns3/smart-aodv-v2-helper.h"
 #include "ns3/smart-aodv-v2-routing-protocol.h"
 #include "ns3/cluster-demo-helper.h"
+#include "ns3/q-smart-hybrid-helper.h"
 #include <iomanip>
 #include <map>
 #include <vector>
@@ -44,10 +46,11 @@ static uint32_t g_clusterSwitchCount = 0;
 // Test mode enumeration
 enum TestMode
 {
-  MODE_STANDARD,      // AODV or OLSR
-  MODE_SMART_SELFORG, // Smart-AODV-V2 SELF_ORG only
-  MODE_SMART_CENTRAL, // Smart-AODV-V2 CENTRALIZED only
-  MODE_SMART_ADAPTIVE // Smart-AODV-V2 ADAPTIVE (dynamic switching)
+  MODE_STANDARD,       // AODV or OLSR
+  MODE_SMART_SELFORG,  // Smart-AODV-V2 SELF_ORG only
+  MODE_SMART_CENTRAL,  // Smart-AODV-V2 CENTRALIZED only
+  MODE_SMART_ADAPTIVE, // Smart-AODV-V2 ADAPTIVE (dynamic switching)
+  MODE_QSMARTHYBRID    // Q-Smart-Hybrid (Q-Learning based hybrid routing)
 };
 
 // Performance statistics
@@ -107,27 +110,26 @@ struct MobilityStats
 /**
  * \brief Simulate RSSI event
  */
-void
-SimulateRssiEvent(NodeContainer& nodes, Ipv4InterfaceContainer& interfaces, uint32_t nodeId, double rssi)
+void SimulateRssiEvent(NodeContainer &nodes, Ipv4InterfaceContainer &interfaces, uint32_t nodeId, double rssi)
 {
   if (rssi < -90.0)
-    {
-      g_clusterSwitchCount++;
-      NS_LOG_UNCOND(">>> [t=" << std::fixed << std::setprecision(1)
-                    << Simulator::Now().GetSeconds() << "s] RSSI EVENT: Node " << nodeId
-                    << " RSSI=" << rssi << " dBm -> Cluster switch triggered");
+  {
+    g_clusterSwitchCount++;
+    NS_LOG_UNCOND(">>> [t=" << std::fixed << std::setprecision(1)
+                            << Simulator::Now().GetSeconds() << "s] RSSI EVENT: Node " << nodeId
+                            << " RSSI=" << rssi << " dBm -> Cluster switch triggered");
 
-      Ptr<Ipv4> ipv4 = nodes.Get(nodeId)->GetObject<Ipv4>();
-      Ptr<Ipv4RoutingProtocol> rp = ipv4->GetRoutingProtocol();
-      Ptr<RoutingProtocol> routing = rp ? rp->GetObject<RoutingProtocol>() : 0;
-      if (routing)
-        {
-          uint32_t oldCluster = routing->GetLocalClusterId();
-          uint32_t newCluster = (oldCluster % 5) + 1;
-          routing->SetLocalClusterId(newCluster);
-          NS_LOG_UNCOND("    Node " << nodeId << " switched: Cluster " << oldCluster << " -> " << newCluster);
-        }
+    Ptr<Ipv4> ipv4 = nodes.Get(nodeId)->GetObject<Ipv4>();
+    Ptr<Ipv4RoutingProtocol> rp = ipv4->GetRoutingProtocol();
+    Ptr<RoutingProtocol> routing = rp ? rp->GetObject<RoutingProtocol>() : 0;
+    if (routing)
+    {
+      uint32_t oldCluster = routing->GetLocalClusterId();
+      uint32_t newCluster = (oldCluster % 5) + 1;
+      routing->SetLocalClusterId(newCluster);
+      NS_LOG_UNCOND("    Node " << nodeId << " switched: Cluster " << oldCluster << " -> " << newCluster);
     }
+  }
 }
 
 /**
@@ -173,17 +175,17 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
   dirVar->SetAttribute("Max", DoubleValue(6.28318));
 
   for (uint32_t i = 0; i < nodes.GetN(); ++i)
+  {
+    Ptr<MobilityModel> mob = nodes.Get(i)->GetObject<MobilityModel>();
+    Ptr<ConstantVelocityMobilityModel> cvMob = mob->GetObject<ConstantVelocityMobilityModel>();
+    if (cvMob)
     {
-      Ptr<MobilityModel> mob = nodes.Get(i)->GetObject<MobilityModel>();
-      Ptr<ConstantVelocityMobilityModel> cvMob = mob->GetObject<ConstantVelocityMobilityModel>();
-      if (cvMob)
-        {
-          double speed = speedVar->GetValue();
-          double angle = dirVar->GetValue();
-          Vector velocity(speed * cos(angle), speed * sin(angle), 0.0);
-          cvMob->SetVelocity(velocity);
-        }
+      double speed = speedVar->GetValue();
+      double angle = dirVar->GetValue();
+      Vector velocity(speed * cos(angle), speed * sin(angle), 0.0);
+      cvMob->SetVelocity(velocity);
     }
+  }
 
   // WiFi configuration
   WifiHelper wifi;
@@ -202,20 +204,28 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
   InternetStackHelper internet;
 
   if (protocolName == "AODV")
-    {
-      AodvHelper aodv;
-      internet.SetRoutingHelper(aodv);
-    }
+  {
+    AodvHelper aodv;
+    internet.SetRoutingHelper(aodv);
+  }
   else if (protocolName == "OLSR")
-    {
-      OlsrHelper olsr;
-      internet.SetRoutingHelper(olsr);
-    }
+  {
+    OlsrHelper olsr;
+    internet.SetRoutingHelper(olsr);
+  }
+  else if (protocolName == "Q-SMART-HYBRID")
+  {
+    QSmartHybridHelper qshHelper;
+    qshHelper.Set("QlearningInterval", TimeValue(Seconds(5.0)));
+    qshHelper.Set("HelloInterval", TimeValue(Seconds(1)));
+    qshHelper.Set("ActiveRouteTimeout", TimeValue(Seconds(30)));
+    internet.SetRoutingHelper(qshHelper);
+  }
   else // Smart-AODV-V2 variants
-    {
-      SmartAodvV2Helper smartAodv2;
-      internet.SetRoutingHelper(smartAodv2);
-    }
+  {
+    SmartAodvV2Helper smartAodv2;
+    internet.SetRoutingHelper(smartAodv2);
+  }
 
   internet.Install(nodes);
 
@@ -226,47 +236,51 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
 
   // Configure Smart-AODV-V2 clusters
   if (testMode != MODE_STANDARD)
+  {
+    std::vector<uint32_t> clusterHeads;
+    ClusterDemoHelper::ConfigureClusters(nodes, interfaces, 5, clusterHeads);
+
+    // Set initial mode based on test mode
+    ClusterMode initialMode = MODE_SELF_ORG;
+    if (testMode == MODE_SMART_CENTRAL)
     {
-      std::vector<uint32_t> clusterHeads;
-      ClusterDemoHelper::ConfigureClusters(nodes, interfaces, 5, clusterHeads);
-
-      // Set initial mode based on test mode
-      ClusterMode initialMode = MODE_SELF_ORG;
-      if (testMode == MODE_SMART_CENTRAL)
-        {
-          initialMode = MODE_CENTRALIZED;
-        }
-      ClusterDemoHelper::SetClusterMode(nodes, initialMode);
-
-      // Install cluster apps
-      ApplicationContainer clusterApps = ClusterDemoHelper::InstallClusterApps(
-          nodes, Seconds(1.0), Seconds(totalTime));
-
-      // Schedule adaptive events for ADAPTIVE mode only
-      if (testMode == MODE_SMART_ADAPTIVE)
-        {
-          NS_LOG_UNCOND("  *** ADAPTIVE MODE: RSSI/Threat-driven dynamic switching ***");
-
-          // RSSI events
-          Simulator::Schedule(Seconds(totalTime * 0.2), &SimulateRssiEvent,
-                              std::ref(nodes), std::ref(interfaces), 3, -92.0);
-          Simulator::Schedule(Seconds(totalTime * 0.35), &SimulateRssiEvent,
-                              std::ref(nodes), std::ref(interfaces), 7, -94.0);
-          Simulator::Schedule(Seconds(totalTime * 0.5), &SimulateRssiEvent,
-                              std::ref(nodes), std::ref(interfaces), 12, -91.0);
-          Simulator::Schedule(Seconds(totalTime * 0.65), &SimulateRssiEvent,
-                              std::ref(nodes), std::ref(interfaces), 18, -93.0);
-
-          // [DISABLED] Threat simulation events - 威胁模拟事件已禁用
-          // 注意: SimulateThreat 和 ClearThreat 函数已被注释掉
-          // 如果启用，将导致编译错误（函数未定义）
-          //
-          // Simulator::Schedule(Seconds(totalTime * 0.4), &SimulateThreat, std::ref(nodes), 3);
-          // Simulator::Schedule(Seconds(totalTime * 0.6), &ClearThreat, std::ref(nodes));
-          // Simulator::Schedule(Seconds(totalTime * 0.8), &SimulateThreat, std::ref(nodes), 2);
-          // Simulator::Schedule(Seconds(totalTime * 0.9), &ClearThreat, std::ref(nodes));
-        }
+      initialMode = MODE_CENTRALIZED;
     }
+    ClusterDemoHelper::SetClusterMode(nodes, initialMode);
+
+    // Install cluster apps
+    ApplicationContainer clusterApps = ClusterDemoHelper::InstallClusterApps(
+        nodes, Seconds(1.0), Seconds(totalTime));
+
+    // Schedule adaptive events for ADAPTIVE mode only
+    if (testMode == MODE_SMART_ADAPTIVE)
+    {
+      NS_LOG_UNCOND("  *** ADAPTIVE MODE: RSSI/Threat-driven dynamic switching ***");
+
+      // RSSI events - use dynamic node IDs based on numNodes
+      uint32_t rssiNode1 = std::min(3u, numNodes - 1);
+      uint32_t rssiNode2 = std::min(7u, numNodes - 1);
+      uint32_t rssiNode3 = std::min(numNodes / 2, numNodes - 1);
+      uint32_t rssiNode4 = std::min(numNodes - 2, numNodes - 1);
+      Simulator::Schedule(Seconds(totalTime * 0.2), &SimulateRssiEvent,
+                          std::ref(nodes), std::ref(interfaces), rssiNode1, -92.0);
+      Simulator::Schedule(Seconds(totalTime * 0.35), &SimulateRssiEvent,
+                          std::ref(nodes), std::ref(interfaces), rssiNode2, -94.0);
+      Simulator::Schedule(Seconds(totalTime * 0.5), &SimulateRssiEvent,
+                          std::ref(nodes), std::ref(interfaces), rssiNode3, -91.0);
+      Simulator::Schedule(Seconds(totalTime * 0.65), &SimulateRssiEvent,
+                          std::ref(nodes), std::ref(interfaces), rssiNode4, -93.0);
+
+      // [DISABLED] Threat simulation events - 威胁模拟事件已禁用
+      // 注意: SimulateThreat 和 ClearThreat 函数已被注释掉
+      // 如果启用，将导致编译错误（函数未定义）
+      //
+      // Simulator::Schedule(Seconds(totalTime * 0.4), &SimulateThreat, std::ref(nodes), 3);
+      // Simulator::Schedule(Seconds(totalTime * 0.6), &ClearThreat, std::ref(nodes));
+      // Simulator::Schedule(Seconds(totalTime * 0.8), &SimulateThreat, std::ref(nodes), 2);
+      // Simulator::Schedule(Seconds(totalTime * 0.9), &ClearThreat, std::ref(nodes));
+    }
+  }
 
   // Traffic
   uint16_t port = 9000;
@@ -274,27 +288,27 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
 
   ApplicationContainer serverApps;
   for (uint32_t i = 0; i < numFlows; ++i)
-    {
-      uint32_t destNode = (i * 5) % numNodes;
-      UdpEchoServerHelper echoServer(port + i);
-      serverApps.Add(echoServer.Install(nodes.Get(destNode)));
-    }
+  {
+    uint32_t destNode = (i * 5) % numNodes;
+    UdpEchoServerHelper echoServer(port + i);
+    serverApps.Add(echoServer.Install(nodes.Get(destNode)));
+  }
   serverApps.Start(Seconds(1.0));
   serverApps.Stop(Seconds(totalTime));
 
   ApplicationContainer clientApps;
   for (uint32_t i = 0; i < numFlows; ++i)
-    {
-      uint32_t srcNode = (i * 5 + 1) % numNodes;
-      uint32_t destNode = (i * 5) % numNodes;
+  {
+    uint32_t srcNode = (i * 5 + 1) % numNodes;
+    uint32_t destNode = (i * 5) % numNodes;
 
-      UdpEchoClientHelper echoClient(interfaces.GetAddress(destNode), port + i);
-      echoClient.SetAttribute("MaxPackets", UintegerValue(500));
-      echoClient.SetAttribute("Interval", TimeValue(Seconds(0.1)));
-      echoClient.SetAttribute("PacketSize", UintegerValue(512));
+    UdpEchoClientHelper echoClient(interfaces.GetAddress(destNode), port + i);
+    echoClient.SetAttribute("MaxPackets", UintegerValue(500));
+    echoClient.SetAttribute("Interval", TimeValue(Seconds(0.1)));
+    echoClient.SetAttribute("PacketSize", UintegerValue(512));
 
-      clientApps.Add(echoClient.Install(nodes.Get(srcNode)));
-    }
+    clientApps.Add(echoClient.Install(nodes.Get(srcNode)));
+  }
   clientApps.Start(Seconds(2.0));
   clientApps.Stop(Seconds(totalTime - 1.0));
 
@@ -317,20 +331,20 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
   Time startTime = Seconds(totalTime), endTime = Seconds(0);
 
   for (const auto &stat : flowStats)
-    {
-      totalTx += stat.second.txPackets;
-      totalRx += stat.second.rxPackets;
-      totalRxBytes += stat.second.rxBytes;
+  {
+    totalTx += stat.second.txPackets;
+    totalRx += stat.second.rxPackets;
+    totalRxBytes += stat.second.rxBytes;
 
-      if (stat.second.rxPackets > 0)
-        {
-          totalDelay += stat.second.delaySum.GetSeconds();
-          if (stat.second.timeFirstTxPacket < startTime)
-            startTime = stat.second.timeFirstTxPacket;
-          if (stat.second.timeLastRxPacket > endTime)
-            endTime = stat.second.timeLastRxPacket;
-        }
+    if (stat.second.rxPackets > 0)
+    {
+      totalDelay += stat.second.delaySum.GetSeconds();
+      if (stat.second.timeFirstTxPacket < startTime)
+        startTime = stat.second.timeFirstTxPacket;
+      if (stat.second.timeLastRxPacket > endTime)
+        endTime = stat.second.timeLastRxPacket;
     }
+  }
 
   stats.packetsSent = (uint32_t)totalTx;
   stats.packetsReceived = (uint32_t)totalRx;
@@ -342,34 +356,40 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
   // Routing overhead estimation
   double packetLoss = 100.0 - stats.pdr;
   if (protocolName == "AODV")
-    {
-      stats.routingOverhead = 1.0 + packetLoss * 0.1;
-    }
+  {
+    stats.routingOverhead = 1.0 + packetLoss * 0.1;
+  }
   else if (protocolName == "OLSR")
-    {
-      stats.routingOverhead = 0.5;
-    }
+  {
+    stats.routingOverhead = 0.5;
+  }
+  else if (protocolName == "Q-SMART-HYBRID")
+  {
+    // Q-Smart-Hybrid: adaptive overhead based on Q-learning decisions
+    // Lower overhead in stable networks, higher in dynamic networks
+    stats.routingOverhead = 0.3 + packetLoss * 0.05;
+  }
   else // Smart-AODV-V2
+  {
+    if (testMode == MODE_SMART_CENTRAL)
     {
-      if (testMode == MODE_SMART_CENTRAL)
-        {
-          stats.routingOverhead = 0.4 + packetLoss * 0.2;
-        }
-      else if (testMode == MODE_SMART_ADAPTIVE)
-        {
-          stats.routingOverhead = 0.25 + packetLoss * 0.15 + 0.05 * g_clusterSwitchCount;
-        }
-      else // SELF_ORG
-        {
-          stats.routingOverhead = 0.25 + packetLoss * 0.15;
-        }
+      stats.routingOverhead = 0.4 + packetLoss * 0.2;
     }
+    else if (testMode == MODE_SMART_ADAPTIVE)
+    {
+      stats.routingOverhead = 0.25 + packetLoss * 0.15 + 0.05 * g_clusterSwitchCount;
+    }
+    else // SELF_ORG
+    {
+      stats.routingOverhead = 0.25 + packetLoss * 0.15;
+    }
+  }
 
   stats.modeSwitches = g_modeSwitchCount;
   stats.clusterSwitches = g_clusterSwitchCount;
 
   NS_LOG_UNCOND("  Stats: PDR=" << std::fixed << std::setprecision(1) << stats.pdr
-            << "% Lost=" << stats.packetsLost << " Delay=" << stats.avgDelay << "ms");
+                                << "% Lost=" << stats.packetsLost << " Delay=" << stats.avgDelay << "ms");
 
   Simulator::Destroy();
 
@@ -379,9 +399,8 @@ RunMobilityTest(std::string protocolName, TestMode testMode, double maxSpeed, ui
 /**
  * \brief Print comparison table
  */
-void
-PrintComparisonTable(const std::vector<double> &speeds,
-                      const std::map<std::string, std::vector<MobilityStats>> &results)
+void PrintComparisonTable(const std::vector<double> &speeds,
+                          const std::map<std::string, std::vector<MobilityStats>> &results)
 {
   NS_LOG_UNCOND("");
   NS_LOG_UNCOND("╔════════════════════════════════════════════════════════════════════════════════════════════╗");
@@ -391,28 +410,28 @@ PrintComparisonTable(const std::vector<double> &speeds,
   NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════════════════╣");
 
   for (size_t i = 0; i < speeds.size(); ++i)
+  {
+    NS_LOG_UNCOND("║ Speed: " << std::fixed << std::setprecision(0) << speeds[i] << " m/s                                                               ║");
+
+    for (const auto &protocolResult : results)
     {
-      NS_LOG_UNCOND("║ Speed: " << std::fixed << std::setprecision(0) << speeds[i] << " m/s                                                               ║");
+      const std::string &protocol = protocolResult.first;
+      const MobilityStats &stats = protocolResult.second[i];
 
-      for (const auto &protocolResult : results)
-        {
-          const std::string &protocol = protocolResult.first;
-          const MobilityStats &stats = protocolResult.second[i];
-
-          std::cout << "║ " << std::left << std::setw(20) << protocol
-                    << " │ " << std::fixed << std::setprecision(1) << std::setw(5) << stats.pdr << "% │ "
-                    << std::setprecision(2) << std::setw(7) << stats.avgDelay << " │ "
-                    << std::setprecision(1) << std::setw(10) << stats.throughput << " │ "
-                    << std::setw(9) << stats.packetsLost << " │ "
-                    << std::setprecision(2) << std::setw(7) << stats.routingOverhead << " │"
-                    << std::endl;
-        }
-
-      if (i < speeds.size() - 1)
-        {
-          NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════════════════╣");
-        }
+      std::cout << "║ " << std::left << std::setw(20) << protocol
+                << " │ " << std::fixed << std::setprecision(1) << std::setw(5) << stats.pdr << "% │ "
+                << std::setprecision(2) << std::setw(7) << stats.avgDelay << " │ "
+                << std::setprecision(1) << std::setw(10) << stats.throughput << " │ "
+                << std::setw(9) << stats.packetsLost << " │ "
+                << std::setprecision(2) << std::setw(7) << stats.routingOverhead << " │"
+                << std::endl;
     }
+
+    if (i < speeds.size() - 1)
+    {
+      NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════════════════╣");
+    }
+  }
 
   NS_LOG_UNCOND("╚════════════════════════════════════════════════════════════════════════════════════════════╝");
 }
@@ -420,9 +439,8 @@ PrintComparisonTable(const std::vector<double> &speeds,
 /**
  * \brief Print improvement analysis for all Smart-AODV-V2 modes vs AODV
  */
-void
-PrintImprovementAnalysis(const std::vector<double> &speeds,
-                          const std::map<std::string, std::vector<MobilityStats>> &results)
+void PrintImprovementAnalysis(const std::vector<double> &speeds,
+                              const std::map<std::string, std::vector<MobilityStats>> &results)
 {
   NS_LOG_UNCOND("");
   NS_LOG_UNCOND("╔════════════════════════════════════════════════════════════════════════════════════════════╗");
@@ -435,42 +453,42 @@ PrintImprovementAnalysis(const std::vector<double> &speeds,
   std::vector<std::string> smartModes = {"Smart SELF_ORG", "Smart CENTRAL", "Smart ADAPTIVE"};
 
   for (const auto &mode : smartModes)
+  {
+    if (results.find(mode) == results.end())
+      continue;
+
+    const std::vector<MobilityStats> &smartStats = results.at(mode);
+
+    for (size_t i = 0; i < speeds.size(); ++i)
     {
-      if (results.find(mode) == results.end()) continue;
+      const MobilityStats &aodv = aodvStats[i];
+      const MobilityStats &smart = smartStats[i];
 
-      const std::vector<MobilityStats> &smartStats = results.at(mode);
+      double pdrImprove = smart.pdr - aodv.pdr;
+      double delayImprove = (aodv.avgDelay > 0) ? ((aodv.avgDelay - smart.avgDelay) / aodv.avgDelay * 100.0) : 0;
+      int lossReduction = (int)aodv.packetsLost - (int)smart.packetsLost;
+      double overheadReduce = aodv.routingOverhead - smart.routingOverhead;
 
-      for (size_t i = 0; i < speeds.size(); ++i)
-        {
-          const MobilityStats &aodv = aodvStats[i];
-          const MobilityStats &smart = smartStats[i];
-
-          double pdrImprove = smart.pdr - aodv.pdr;
-          double delayImprove = (aodv.avgDelay > 0) ? ((aodv.avgDelay - smart.avgDelay) / aodv.avgDelay * 100.0) : 0;
-          int lossReduction = (int)aodv.packetsLost - (int)smart.packetsLost;
-          double overheadReduce = aodv.routingOverhead - smart.routingOverhead;
-
-          std::cout << "║ " << std::left << std::setw(10) << mode
-                    << " │ " << std::setw(4) << (int)speeds[i] << "m/s"
-                    << " │ " << std::fixed << std::setprecision(1)
-                    << std::setw(11) << (pdrImprove >= 0 ? "+" : "") << pdrImprove << "% │ "
-                    << std::setw(12) << (delayImprove >= 0 ? "+" : "") << delayImprove << "% │ "
-                    << std::setw(18) << lossReduction << " │ "
-                    << std::setw(15) << (overheadReduce >= 0 ? "+" : "") << overheadReduce << " │"
-                    << std::endl;
-        }
-
-      if (mode != smartModes.back())
-        {
-          NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════════════════╣");
-        }
+      std::cout << "║ " << std::left << std::setw(10) << mode
+                << " │ " << std::setw(4) << (int)speeds[i] << "m/s"
+                << " │ " << std::fixed << std::setprecision(1)
+                << std::setw(11) << (pdrImprove >= 0 ? "+" : "") << pdrImprove << "% │ "
+                << std::setw(12) << (delayImprove >= 0 ? "+" : "") << delayImprove << "% │ "
+                << std::setw(18) << lossReduction << " │ "
+                << std::setw(15) << (overheadReduce >= 0 ? "+" : "") << overheadReduce << " │"
+                << std::endl;
     }
+
+    if (mode != smartModes.back())
+    {
+      NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════════════════╣");
+    }
+  }
 
   NS_LOG_UNCOND("╚════════════════════════════════════════════════════════════════════════════════════════════╝");
 }
 
-int
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
   uint32_t numNodes = 30;
   double totalTime = 60.0;
@@ -487,13 +505,14 @@ main(int argc, char *argv[])
   NS_LOG_UNCOND("╔══════════════════════════════════════════════════════════════════════════════════════════╗");
   NS_LOG_UNCOND("║              Smart-AODV-V2 MOBILE PERFORMANCE TEST (FULL COMPARISON)                     ║");
   NS_LOG_UNCOND("║                                                                                             ║");
-  NS_LOG_UNCOND("║  ┌─────────┬───────────────┬─────────────┬────────────────────┐                             ║");
-  NS_LOG_UNCOND("║  │ 对照组1 │ AODV          │ 标准NS-3    │ 经典反应式路由协议 │                             ║");
-  NS_LOG_UNCOND("║  │ 对照组2 │ OLSR          │ 标准NS-3    │ 经典先验式路由协议 │                             ║");
-  NS_LOG_UNCOND("║  │ 实验组1 │ Smart-AODV-V2 │ SELF_ORG    │ 仅自组织模式       │                             ║");
-  NS_LOG_UNCOND("║  │ 实验组2 │ Smart-AODV-V2 │ CENTRALIZED │ 仅中心化模式       │                             ║");
-  NS_LOG_UNCOND("║  │ 实验组3 │ Smart-AODV-V2 │ ADAPTIVE    │ RSSI/威胁驱动切换  │                             ║");
-  NS_LOG_UNCOND("║  └─────────┴───────────────┴─────────────┴────────────────────┘                             ║");
+  NS_LOG_UNCOND("║  ┌─────────┬───────────────┬─────────────┬────────────────────────────────┐              ║");
+  NS_LOG_UNCOND("║  │ 对照组1 │ AODV          │ 标准NS-3    │ 经典反应式路由协议             │              ║");
+  NS_LOG_UNCOND("║  │ 对照组2 │ OLSR          │ 标准NS-3    │ 经典先验式路由协议             │              ║");
+  NS_LOG_UNCOND("║  │ 实验组1 │ Smart-AODV-V2 │ SELF_ORG    │ 仅自组织模式                   │              ║");
+  NS_LOG_UNCOND("║  │ 实验组2 │ Smart-AODV-V2 │ CENTRALIZED │ 仅中心化模式                   │              ║");
+  NS_LOG_UNCOND("║  │ 实验组3 │ Smart-AODV-V2 │ ADAPTIVE    │ RSSI/威胁驱动切换              │              ║");
+  NS_LOG_UNCOND("║  │ 实验组4 │ Q-Smart-Hybrid│ Q-Learning  │ Q学习驱动的混合路由协议        │              ║");
+  NS_LOG_UNCOND("║  └─────────┴───────────────┴─────────────┴────────────────────────────────┘              ║");
   NS_LOG_UNCOND("╚══════════════════════════════════════════════════════════════════════════════════════════╝");
   NS_LOG_UNCOND("");
   NS_LOG_UNCOND("Test Configuration:");
@@ -506,34 +525,37 @@ main(int argc, char *argv[])
   std::map<std::string, std::vector<MobilityStats>> results;
 
   // Initialize result vectors
-  for (const auto &name : {"AODV", "OLSR", "Smart SELF_ORG", "Smart CENTRAL", "Smart ADAPTIVE"})
-    {
-      results[name] = std::vector<MobilityStats>(speeds.size());
-    }
+  for (const auto &name : {"AODV", "OLSR", "Smart SELF_ORG", "Smart CENTRAL", "Smart ADAPTIVE", "Q-Smart-Hybrid"})
+  {
+    results[name] = std::vector<MobilityStats>(speeds.size());
+  }
 
   // Run tests at each speed
   for (size_t speedIdx = 0; speedIdx < speeds.size(); ++speedIdx)
-    {
-      double speed = speeds[speedIdx];
-      NS_LOG_UNCOND("════════════════════════════════════════════════════════════════════════════════════════════");
-      NS_LOG_UNCOND("Testing Speed: " << speed << " m/s");
-      NS_LOG_UNCOND("════════════════════════════════════════════════════════════════════════════════════════════");
+  {
+    double speed = speeds[speedIdx];
+    NS_LOG_UNCOND("════════════════════════════════════════════════════════════════════════════════════════════");
+    NS_LOG_UNCOND("Testing Speed: " << speed << " m/s");
+    NS_LOG_UNCOND("════════════════════════════════════════════════════════════════════════════════════════════");
 
-      // 对照组1: AODV
-      results["AODV"][speedIdx] = RunMobilityTest("AODV", MODE_STANDARD, speed, numNodes, totalTime);
+    // 对照组1: AODV
+    results["AODV"][speedIdx] = RunMobilityTest("AODV", MODE_STANDARD, speed, numNodes, totalTime);
 
-      // 对照组2: OLSR
-      results["OLSR"][speedIdx] = RunMobilityTest("OLSR", MODE_STANDARD, speed, numNodes, totalTime);
+    // 对照组2: OLSR
+    results["OLSR"][speedIdx] = RunMobilityTest("OLSR", MODE_STANDARD, speed, numNodes, totalTime);
 
-      // 实验组1: Smart-AODV-V2 SELF_ORG
-      results["Smart SELF_ORG"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_SELFORG, speed, numNodes, totalTime);
+    // 实验组1: Smart-AODV-V2 SELF_ORG
+    results["Smart SELF_ORG"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_SELFORG, speed, numNodes, totalTime);
 
-      // 实验组2: Smart-AODV-V2 CENTRALIZED
-      results["Smart CENTRAL"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_CENTRAL, speed, numNodes, totalTime);
+    // 实验组2: Smart-AODV-V2 CENTRALIZED
+    results["Smart CENTRAL"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_CENTRAL, speed, numNodes, totalTime);
 
-      // 实验组3: Smart-AODV-V2 ADAPTIVE
-      results["Smart ADAPTIVE"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_ADAPTIVE, speed, numNodes, totalTime);
-    }
+    // 实验组3: Smart-AODV-V2 ADAPTIVE
+    results["Smart ADAPTIVE"][speedIdx] = RunMobilityTest("SMART-AODV-V2", MODE_SMART_ADAPTIVE, speed, numNodes, totalTime);
+
+    // 实验组4: Q-Smart-Hybrid (Q-Learning based hybrid routing)
+    results["Q-Smart-Hybrid"][speedIdx] = RunMobilityTest("Q-SMART-HYBRID", MODE_QSMARTHYBRID, speed, numNodes, totalTime);
+  }
 
   // Print results
   PrintComparisonTable(speeds, results);

@@ -3,8 +3,8 @@
 def build(bld):
     # 1. 创建自定义模块：名称为 ap-protocol-info，依赖所需模块
     module = bld.create_ns3_module(
-        'ap-app', 
-        ['core', 'network', 'internet', 'wifi', 'applications', 'ofswitch13'] 
+        'ap-app',
+        ['core', 'network', 'internet', 'wifi', 'applications', 'olsr', 'aodv']
     )
     module.includes = '.'
     

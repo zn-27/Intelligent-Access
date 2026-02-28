@@ -1,0 +1,28 @@
+## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    module = bld.create_ns3_module('q-smart-hybrid', ['internet', 'wifi', 'olsr'])
+    module.includes = '.'
+    module.source = [
+        'model/q-smart-hybrid-qlearning.cc',
+        'model/q-smart-hybrid-rtable.cc',
+        'model/q-smart-hybrid-packet.cc',
+        'model/q-smart-hybrid-routing-protocol.cc',
+        'helper/q-smart-hybrid-helper.cc',
+        ]
+
+    headers = bld(features='ns3header')
+    headers.module = 'q-smart-hybrid'
+    headers.source = [
+        'model/q-smart-hybrid-qlearning.h',
+        'model/q-smart-hybrid-rtable.h',
+        'model/q-smart-hybrid-packet.h',
+        'model/q-smart-hybrid-routing-protocol.h',
+        'helper/q-smart-hybrid-helper.h',
+        ]
+
+    if bld.env['ENABLE_EXAMPLES']:
+        bld.recurse('examples')
+
+    # Python bindings (disabled by default)
+    # bld.ns3_python_bindings()

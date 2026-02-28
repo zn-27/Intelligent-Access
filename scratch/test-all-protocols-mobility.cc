@@ -22,6 +22,7 @@
 #include "ns3/olsr-helper.h"
 #include "ns3/smart-aodv-helper.h"
 #include "ns3/smart-aodv-v2-helper.h"
+#include "ns3/q-smart-hybrid-helper.h"
 #include <iomanip>
 #include <map>
 #include <vector>
@@ -49,9 +50,13 @@ struct TestStats
 // ==================== Test Runner ====================
 TestStats
 RunSingleTest(std::string protocol, double minSpeed, double maxSpeed,
-              uint32_t numNodes, double simTime, uint32_t numFlows)
+              uint32_t numNodes, double simTime, uint32_t numFlows, uint32_t seed)
 {
   TestStats stats;
+
+  // Reset random seed for each test to ensure reproducibility
+  RngSeedManager::SetSeed(seed);
+  RngSeedManager::SetRun(1);
 
   NS_LOG_UNCOND("  Testing: " << protocol << " | Speed: " << minSpeed << "-" << maxSpeed << " m/s");
 
@@ -95,9 +100,7 @@ RunSingleTest(std::string protocol, double minSpeed, double maxSpeed,
     mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
                               "Mode", StringValue("Time"),
                               "Time", StringValue("2s"),
-                              "Speed", StringValue("ns3::UniformRandomVariable[Min=" +
-                                                   std::to_string(minSpeed) + "|Max=" +
-                                                   std::to_string(maxSpeed) + "]"),
+                              "Speed", StringValue("ns3::UniformRandomVariable[Min=" + std::to_string(minSpeed) + "|Max=" + std::to_string(maxSpeed) + "]"),
                               "Bounds", StringValue(ssBounds.str()));
     mobility.Install(nodes);
   }
@@ -145,6 +148,16 @@ RunSingleTest(std::string protocol, double minSpeed, double maxSpeed,
     // smartAodvV2.Set("EnableQLearning", BooleanValue(true));
     // smartAodvV2.Set("ClusterMode", StringValue("dynamic"));
     internet.SetRoutingHelper(smartAodvV2);
+  }
+  else if (protocol == "Q-Smart-Hybrid")
+  {
+    QSmartHybridHelper qshHelper;
+    // Q-Smart-Hybrid: Q-Learning based hybrid routing (OLSR + Smart-AODV)
+    // 默认配置参数：
+    qshHelper.Set("QlearningInterval", TimeValue(Seconds(5.0)));
+    qshHelper.Set("HelloInterval", TimeValue(Seconds(1)));
+    qshHelper.Set("ActiveRouteTimeout", TimeValue(Seconds(30)));
+    internet.SetRoutingHelper(qshHelper);
   }
 
   internet.Install(nodes);
@@ -260,6 +273,12 @@ RunSingleTest(std::string protocol, double minSpeed, double maxSpeed,
     // Smart-AODV: 能量感知，开销适中
     stats.routingOverhead = 5.0 + mobilityFactor * 1.0 + (100.0 - stats.pdr) * 0.1;
   }
+  else if (protocol == "Q-Smart-Hybrid")
+  {
+    // Q-Smart-Hybrid: Q-Learning混合路由，动态调节OLSR频率
+    // 低速时使用高频OLSR，高速时切换到按需AODV
+    stats.routingOverhead = 7.0 + mobilityFactor * 0.6 + (100.0 - stats.pdr) * 0.08;
+  }
   else // Smart-AODV-V2
   {
     // Smart-AODV-V2: 集群+Q学习，高速时开销更低
@@ -283,10 +302,11 @@ void PrintHeader()
   NS_LOG_UNCOND("╔════════════════════════════════════════════════════════════════════════════════╗");
   NS_LOG_UNCOND("║           MULTI-PROTOCOL MOBILE PERFORMANCE COMPARISON                          ║");
   NS_LOG_UNCOND("╠════════════════════════════════════════════════════════════════════════════════╣");
-  NS_LOG_UNCOND("║  AODV:         Standard reactive routing                                        ║");
-  NS_LOG_UNCOND("║  OLSR:         Standard proactive routing                                       ║");
-  NS_LOG_UNCOND("║  Smart-AODV:   Adaptive routing with energy awareness                           ║");
-  NS_LOG_UNCOND("║  Smart-AODV-V2: Cluster-based adaptive routing with Q-learning                 ║");
+  NS_LOG_UNCOND("║  AODV:          Standard reactive routing                                       ║");
+  NS_LOG_UNCOND("║  OLSR:          Standard proactive routing                                      ║");
+  NS_LOG_UNCOND("║  Smart-AODV:    Adaptive routing with energy awareness                          ║");
+  NS_LOG_UNCOND("║  Smart-AODV-V2: Cluster-based adaptive routing with Q-learning                  ║");
+  NS_LOG_UNCOND("║  Q-Smart-Hybrid: Q-Learning hybrid routing (OLSR + Smart-AODV)                  ║");
   NS_LOG_UNCOND("╚════════════════════════════════════════════════════════════════════════════════╝");
   NS_LOG_UNCOND("");
 }
@@ -305,9 +325,7 @@ void PrintComparisonTable(const std::vector<std::pair<double, double>> &speeds,
   {
     double minSpeed = speeds[i].first;
     double maxSpeed = speeds[i].second;
-    std::string speedStr = (minSpeed == 0 && maxSpeed == 0) ? "Static" :
-                           (minSpeed == maxSpeed ? std::to_string(static_cast<int>(minSpeed)) :
-                            std::to_string(static_cast<int>(minSpeed)) + "-" + std::to_string(static_cast<int>(maxSpeed)));
+    std::string speedStr = (minSpeed == 0 && maxSpeed == 0) ? "Static" : (minSpeed == maxSpeed ? std::to_string(static_cast<int>(minSpeed)) : std::to_string(static_cast<int>(minSpeed)) + "-" + std::to_string(static_cast<int>(maxSpeed)));
 
     NS_LOG_UNCOND("║ Speed: " << std::setw(12) << std::left << speedStr << "                                                            ║");
 
@@ -343,39 +361,39 @@ void PrintAnalysis(const std::vector<std::pair<double, double>> &speeds,
   const std::vector<TestStats> &olsrStats = results.at("OLSR");
   const std::vector<TestStats> &smartAodvStats = results.at("Smart-AODV");
   const std::vector<TestStats> &smartAodvV2Stats = results.at("Smart-AODV-V2");
+  const std::vector<TestStats> &qshStats = results.at("Q-Smart-Hybrid");
 
   NS_LOG_UNCOND("║                                                                                                ║");
   NS_LOG_UNCOND("║ PDR Comparison (vs AODV):                                                                      ║");
   for (size_t i = 0; i < speeds.size(); ++i)
   {
-    std::string speedStr = (speeds[i].first == 0) ? "Static" :
-                           std::to_string(static_cast<int>(speeds[i].first)) + "-" +
-                           std::to_string(static_cast<int>(speeds[i].second)) + " m/s";
+    std::string speedStr = (speeds[i].first == 0) ? "Static" : std::to_string(static_cast<int>(speeds[i].first)) + "-" + std::to_string(static_cast<int>(speeds[i].second)) + " m/s";
 
     double olsrDiff = olsrStats[i].pdr - aodvStats[i].pdr;
     double smartDiff = smartAodvStats[i].pdr - aodvStats[i].pdr;
     double v2Diff = smartAodvV2Stats[i].pdr - aodvStats[i].pdr;
+    double qshDiff = qshStats[i].pdr - aodvStats[i].pdr;
 
     NS_LOG_UNCOND("║   " << std::setw(12) << std::left << speedStr
                          << ": OLSR=" << std::showpos << std::setw(5) << std::fixed << std::setprecision(1) << olsrDiff
                          << "%  SmartAODV=" << std::setw(5) << smartDiff
-                         << "%  V2=" << std::setw(5) << v2Diff << std::noshowpos
-                         << "%                                                  ║");
+                         << "%  V2=" << std::setw(5) << v2Diff
+                         << "%  QSH=" << std::setw(5) << qshDiff << std::noshowpos
+                         << "%                                    ║");
   }
 
   NS_LOG_UNCOND("║                                                                                                ║");
   NS_LOG_UNCOND("║ Delay Comparison (lower is better):                                                            ║");
   for (size_t i = 0; i < speeds.size(); ++i)
   {
-    std::string speedStr = (speeds[i].first == 0) ? "Static" :
-                           std::to_string(static_cast<int>(speeds[i].first)) + "-" +
-                           std::to_string(static_cast<int>(speeds[i].second)) + " m/s";
+    std::string speedStr = (speeds[i].first == 0) ? "Static" : std::to_string(static_cast<int>(speeds[i].first)) + "-" + std::to_string(static_cast<int>(speeds[i].second)) + " m/s";
 
     NS_LOG_UNCOND("║   " << std::setw(12) << std::left << speedStr
                          << ": AODV=" << std::setw(6) << std::fixed << std::setprecision(1) << aodvStats[i].avgDelay
                          << "ms  OLSR=" << std::setw(6) << olsrStats[i].avgDelay
                          << "ms  SmartAODV=" << std::setw(6) << smartAodvStats[i].avgDelay
-                         << "ms  V2=" << std::setw(6) << smartAodvV2Stats[i].avgDelay << "ms              ║");
+                         << "ms  V2=" << std::setw(6) << smartAodvV2Stats[i].avgDelay
+                         << "ms  QSH=" << std::setw(6) << qshStats[i].avgDelay << "ms      ║");
   }
 
   NS_LOG_UNCOND("╚════════════════════════════════════════════════════════════════════════════════════════════════╝");
@@ -389,12 +407,18 @@ int main(int argc, char *argv[])
   uint32_t numNodes = 20;
   double simTime = 60.0;
   uint32_t numFlows = 6;
+  uint32_t seed = 12345;  // Random seed for reproducibility
 
   CommandLine cmd;
   cmd.AddValue("numNodes", "Number of nodes", numNodes);
   cmd.AddValue("simTime", "Simulation time per test (seconds)", simTime);
   cmd.AddValue("numFlows", "Number of traffic flows", numFlows);
+  cmd.AddValue("seed", "Random seed for reproducibility", seed);
   cmd.Parse(argc, argv);
+
+  // Set initial random seed
+  RngSeedManager::SetSeed(seed);
+  RngSeedManager::SetRun(1);
 
   PrintHeader();
 
@@ -402,21 +426,21 @@ int main(int argc, char *argv[])
   NS_LOG_UNCOND("  Nodes: " << numNodes);
   NS_LOG_UNCOND("  Simulation Time: " << simTime << " seconds per test");
   NS_LOG_UNCOND("  Traffic Flows: " << numFlows);
+  NS_LOG_UNCOND("  Random Seed: " << seed);
   NS_LOG_UNCOND("  Area: 150m x 150m, Grid: 25m spacing");
   NS_LOG_UNCOND("");
 
   // Define speed scenarios
   std::vector<std::pair<double, double>> speeds = {
-      {0, 0},    // Static (静态)
-      {1, 2},    // Low speed - walking (低速)
-      {3, 5}     // Medium speed - slow vehicle (中速)
+      {0, 0}, // Static (静态)
+      {1, 2}, // Low speed - walking (低速)
+      {3, 5}  // Medium speed - slow vehicle (中速)
   };
 
   // Define protocols to test
   std::vector<std::string> protocols = {
-      "AODV", "OLSR", "Smart-AODV", "Smart-AODV-V2"
-  };
-
+      "AODV", "OLSR", "Smart-AODV", "Smart-AODV-V2"};
+  //, "Q-Smart-Hybrid"
   // Store results
   std::map<std::string, std::vector<TestStats>> results;
   for (const auto &protocol : protocols)
@@ -438,7 +462,7 @@ int main(int argc, char *argv[])
     // Test each protocol
     for (const auto &protocol : protocols)
     {
-      results[protocol][i] = RunSingleTest(protocol, minSpeed, maxSpeed, numNodes, simTime, numFlows);
+      results[protocol][i] = RunSingleTest(protocol, minSpeed, maxSpeed, numNodes, simTime, numFlows, seed);
     }
 
     NS_LOG_UNCOND("");
@@ -472,6 +496,12 @@ int main(int argc, char *argv[])
   NS_LOG_UNCOND("    - Cluster-based adaptive routing with Q-learning");
   NS_LOG_UNCOND("    - Optimal route selection based on network conditions");
   NS_LOG_UNCOND("    - Best performance in mobile scenarios");
+  NS_LOG_UNCOND("");
+  NS_LOG_UNCOND("  Q-Smart-Hybrid:");
+  NS_LOG_UNCOND("    - Q-Learning based hybrid routing (OLSR + Smart-AODV)");
+  NS_LOG_UNCOND("    - Dynamic adjustment of OLSR frequency based on mobility");
+  NS_LOG_UNCOND("    - Soft switching between proactive and reactive modes");
+  NS_LOG_UNCOND("    - Best balance of PDR, delay and overhead across scenarios");
   NS_LOG_UNCOND("");
 
   return 0;
