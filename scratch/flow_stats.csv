@@ -1,0 +1,4 @@
+Time,Throughput_1(Kbps),LossRate_1(%),AvgRTT_1(ms),Jitter_1(ms),Throughput_2(Kbps),LossRate_2(%),AvgRTT_2(ms),Jitter_2(ms),Throughput_3(Kbps),LossRate_3(%),AvgRTT_3(ms),Jitter_3(ms),Throughput_4(Kbps),LossRate_4(%),AvgRTT_4(ms),Jitter_4(ms)
+0.1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+1.1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+2.1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
