@@ -159,6 +159,21 @@ struct adhocl_ext_node_status_report
     float z;
 
 };
+
+// 上传FLOW信息
+struct adhocl_ext_flow_status_report {
+    struct ofl_msg_header header; // 8 字节 (实验者消息头)
+    uint32_t vendor;              // 4 字节 (0x12345678)
+    uint32_t subtype;             // 4 字节 (8002)
+    
+    uint32_t throughput;          // 4 字节 (对应 throughputKbps)
+    uint32_t delay;               // 4 字节 (对应 delayMs)
+    uint32_t jitter;              // 4 字节 (对应 jitterMs)
+    
+    uint16_t port;                // 2 字节 (业务端口)
+    uint16_t loss_rate;           // 2 字节 (10000倍放大值)
+};
+
 //--------------------------------------
 
 /********************

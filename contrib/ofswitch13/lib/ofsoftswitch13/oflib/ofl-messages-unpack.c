@@ -2112,14 +2112,62 @@ adhocl_ext_unpack_node_status_report(struct ofp_header *src, size_t *len, struct
     dr->vendor = ntohl(sr->vendor);   // 32-bit
     dr->subtype = ntohl(sr->subtype); // 32-bit
     dr->ip_address = ntohl(sr->ip_address);
-    dr->x = ntohf(sr->x);
-    dr->y = ntohf(sr->y);
-    dr->z = ntohf(sr->z);
+    dr->x = U64ToDouble(sr->x);
+    dr->y = U64ToDouble(sr->y);
+    dr->z = U64ToDouble(sr->z);
     // 输出结构体
     *msg = (struct ofl_msg_header *)dr;
 
     return 0;
 
+}
+
+
+ofl_err
+adhocl_ext_unpack_flow_status_report(struct ofp_header *src, size_t *len, struct ofl_msg_header **msg)
+{
+    struct adhocp_ext_flow_status_report *sr; // 源 (Wire Format - 协议格式)
+    struct adhocl_ext_flow_status_report *dr; // 目标 (Decoded - 内部格式)
+
+    // 1. 长度检查：确保收到的字节数足够填充 32 字节的结构体
+    if (*len < sizeof(struct adhocp_ext_flow_status_report))
+    {
+        OFL_LOG_WARN(LOG_MODULE,
+                     "Received flow_status_report message has invalid length (%zu).", *len);
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 2. 指向输入缓冲区并扣除已处理的长度
+    sr = (struct adhocp_ext_flow_status_report *)src;
+    *len -= sizeof(struct adhocp_ext_flow_status_report);
+
+    // 3. 分配目标内存 (内部使用的库结构体 adhocl)
+    dr = (struct adhocl_ext_flow_status_report *)calloc(1, sizeof(struct adhocl_ext_flow_status_report));
+    if (dr == NULL)
+    {
+        return ofl_error(OFPET_BAD_REQUEST, OFPBRC_BAD_LEN);
+    }
+
+    // 4. 数据转换 (网络字节序 -> 主机字节序)
+    
+    // 头部字段
+    dr->vendor     = ntohl(sr->vendor);
+    dr->subtype    = ntohl(sr->subtype);
+
+    // 32位 核心指标转换
+    dr->throughput = ntohl(sr->throughput);
+    dr->delay      = ntohl(sr->delay);
+    dr->jitter     = ntohl(sr->jitter);
+
+    // 16位 短整型字段转换
+    dr->port       = ntohs(sr->port);
+    dr->loss_rate  = ntohs(sr->loss_rate);
+
+    // 5. 将解码后的消息挂载到输出指针
+    // 注意：dr 的首部即为 ofl_msg_header 结构，转换是安全的
+    *msg = (struct ofl_msg_header *)dr;
+
+    return 0;
 }
 
 ///--------------------------------
@@ -2302,6 +2350,11 @@ ofl_msg_unpack(uint8_t *buf, size_t buf_len, struct ofl_msg_header **msg, uint32
     case ADHOC_EXT_NODE_STATUS_REPORT:
     {
         error = adhocl_ext_unpack_node_status_report(oh,&len,msg);
+        break;
+    }
+    case ADHOC_EXT_FLOW_STATUS_REPORT:
+    {
+        error = adhocl_ext_unpack_flow_status_report(oh,&len,msg);
         break;
     }
     //==========================================================

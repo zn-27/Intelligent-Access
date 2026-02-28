@@ -10,6 +10,8 @@ ps： p1=aodv p2=olsr p3=static Routing
 #include "ns3/log.h"
 
 
+#include "ns3/ipv4-flow-classifier.h"
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE("ApProtocolInfoApp");
@@ -550,6 +552,15 @@ ApProtocolInfoApp::SendNodePosition()
         return posVec;
     }
 
+    // ------------------------------ 流量统计准备 ---------------------------
+    if (m_monitor) {
+        m_monitor->CheckForLostPackets();
+    }
+    std::map<FlowId, FlowMonitor::FlowStats> stats = m_monitor ? m_monitor->GetFlowStats() : std::map<FlowId, FlowMonitor::FlowStats>();
+    // ------------------------------ 流量统计准备 ---------------------------
+
+
+
     // 遍历 AP 上所有 WiFi 设备
     for (uint32_t i = 0; i < apNode->GetNDevices(); i++)
     {
@@ -651,6 +662,115 @@ ApProtocolInfoApp::SendNodePosition()
     }
 
     return posVec;
+}
+
+
+
+
+
+
+
+
+
+
+// ===========================================================================
+// 函数：CollectFlowStats
+// 作用：计算区间吞吐量、延迟、抖动及丢包率
+// ===========================================================================
+std::vector<FlowStatsRecord>
+ApProtocolInfoApp::CollectFlowStats()
+{
+    NS_LOG_FUNCTION(this);
+    std::vector<FlowStatsRecord> flowVec;
+
+    if (!m_monitor || !m_classifier) {
+        NS_LOG_WARN("FlowMonitor or Classifier not set!");
+        return flowVec;
+    }
+
+    // 1. 更新 FlowMonitor 统计状态并获取快照
+    m_monitor->CheckForLostPackets();
+    std::map<FlowId, FlowMonitor::FlowStats> stats = m_monitor->GetFlowStats();
+
+    // 2. 计算采样时间间隔
+    double currentTime = Simulator::Now().GetSeconds();
+    double deltaTime = currentTime - m_lastSampleTime;
+    if (deltaTime <= 0) deltaTime = 0.001; 
+
+    std::cout << "\n[ApProtocolInfoApp] --- Periodic Flow Collection (Delta: " 
+              << deltaTime << "s) ---" << std::endl;
+
+    // 3. 遍历流统计数据
+    for (auto const &flow : stats)
+    {
+        Ipv4FlowClassifier::FiveTuple t = m_classifier->FindFlow(flow.first);
+        
+        // 只有当源地址或目的地址属于 C :10.3.1.0/24 网段时，才继续处理
+        // if (t.sourceAddress.CombineMask(Ipv4Mask("255.255.255.0")) != Ipv4Address("10.3.1.0") && 
+        // t.destinationAddress.CombineMask(Ipv4Mask("255.255.255.0")) != Ipv4Address("10.3.1.0"))
+        // {
+        //     continue; 
+        // }
+        uint32_t flowId = flow.first;
+        const FlowMonitor::FlowStats &fs = flow.second;
+
+        // 4. 计算区间吞吐量 (Kbps)
+        uint64_t currentTotalRx = fs.rxBytes;
+        uint64_t lastRx = m_lastFlowRxBytes.count(flowId) ? m_lastFlowRxBytes[flowId] : 0;
+        uint64_t deltaRx = (currentTotalRx >= lastRx) ? (currentTotalRx - lastRx) : 0;
+        uint32_t intervalThrKbps = static_cast<uint32_t>((deltaRx * 8.0) / (deltaTime * 1024.0));
+
+        // 5. 计算区间丢包率 (基于增量，放大 10000 倍)
+        uint32_t lastTxP = m_lastFlowTxPackets.count(flowId) ? m_lastFlowTxPackets[flowId] : 0;
+        uint32_t lastRxP = m_lastFlowRxPackets.count(flowId) ? m_lastFlowRxPackets[flowId] : 0;
+        
+        uint32_t deltaTxP = fs.txPackets - lastTxP;
+        uint32_t deltaRxP = fs.rxPackets - lastRxP;
+        
+        uint16_t scaledLossRate = 0;
+        if (deltaTxP > 0 && deltaTxP > deltaRxP) {
+            double intervalLoss = static_cast<double>(deltaTxP - deltaRxP) / deltaTxP;
+            scaledLossRate = static_cast<uint16_t>(intervalLoss * 10000); 
+        }
+
+        // 6. 提取平均延迟与抖动 (取整至 ms)
+        uint32_t avgDelayMs = 0;
+        uint32_t avgJitterMs = 0;
+        if (fs.rxPackets > 0) {
+            avgDelayMs = static_cast<uint32_t>(fs.delaySum.GetMilliSeconds() / fs.rxPackets);
+        }
+        if (fs.rxPackets > 1) {
+            avgJitterMs = static_cast<uint32_t>(fs.jitterSum.GetMilliSeconds() / (fs.rxPackets - 1));
+        }
+
+        // 7. 封装进入指定的结构体
+        FlowStatsRecord record;
+        record.throughputKbps = intervalThrKbps;
+        record.delayMs        = avgDelayMs;
+        record.jitterMs       = avgJitterMs;
+        record.port           = static_cast<uint16_t>(t.destinationPort);
+        record.lossRate       = scaledLossRate;
+
+        flowVec.push_back(record);
+
+        // 8. 更新历史状态（用于下次增量计算）
+        m_lastFlowRxBytes[flowId] = currentTotalRx;
+        m_lastFlowTxPackets[flowId] = fs.txPackets;
+        m_lastFlowRxPackets[flowId] = fs.rxPackets;
+
+        // 调试打印
+        std::cout << " [Flow ID " << flowId << "] " << record.port 
+                  << "  Thr: " << record.throughputKbps << " Kbps"
+                  << " | Delay: " << record.delayMs << " ms"
+                  << " | Jitter: " << record.jitterMs << " ms"
+                  << " | Port: " << record.port 
+                  << " | Loss: " << (record.lossRate / 100.0) << "%" << std::endl;
+    }
+
+    // 9. 更新全局采样时间
+    m_lastSampleTime = currentTime;
+    
+    return flowVec;
 }
 
 } // namespace ns3

@@ -231,6 +231,7 @@ public:
   void GetApStaMessages();
   void Changelogical(uint32_t op);
   void SendPosition();
+  void CollectFlowStats();
   /**
    * Called when a packet is received on one of the switch's ports. This method
    * will schedule the packet for OpenFlow pipeline.

@@ -309,7 +309,7 @@ namespace ns3
   }
   //用于修改无线域的节点优先级
   void
-  OFSwitch13Controller::SetRPtoAll()
+  OFSwitch13Controller:: SetRPtoAll()
   { 
     std::cout<<"准备发送 set0 报文到交换机..."<<std::endl;
     NS_LOG_FUNCTION(this);
@@ -754,6 +754,17 @@ namespace ns3
         ofl_msg_free((struct ofl_msg_header *)msg, 0);
         return 0;
     }
+
+    ofl_err
+    OFSwitch13Controller::HandleAdhocExtFlowStatusReport(
+          struct adhocl_ext_flow_status_report *msg, Ptr<const RemoteSwitch> swtch,uint32_t xid)
+    {
+        NS_LOG_FUNCTION(this << swtch << xid);
+
+         // 基础实现，派生类可以覆盖此实现
+        ofl_msg_free((struct ofl_msg_header *)msg, 0);
+        return 0;
+    }
   // --- END: Handlers functions -------
 
   /********** Private methods **********/
@@ -835,28 +846,18 @@ namespace ns3
      //自定义分支3case adhocl_ext_node_status_report
      case ADHOC_EXT_NODE_STATUS_REPORT:
      {
-      std::cout<<"位置信息来了"<<std::endl;
-      struct adhocl_ext_node_status_report *rep = (adhocl_ext_node_status_report *)msg;
-      std::cout<<"ip: "<<rep->ip_address<<"空间坐标：x= "<<rep->x<<" y= "
-               <<rep->y<<" z= "<<rep->z<<std::endl;
-
-    // struct adhocl_ext_node_status_report *statusMsg = 
-    //     (struct adhocl_ext_node_status_report *)msg;
-
-    // // ========== 正确的IP地址转换（NS3 标准API） ==========
-    // Ipv4Address ip(statusMsg->ip_address);
-    // std::ostringstream ipStream;
-    // ipStream << ip;  // NS3 Ipv4Address 支持流输出，替代错误的 ToString()
-    // std::string ipStr = ipStream.str();
-
-    // // ========== 格式化输出（使用强转后的结构体） ==========
-
-    // std::cout << "节点IP:     " << ipStr << "空间坐标:   X=" << std::setw(4) << statusMsg->x << " m, "
-    //           << "Y=" << std::setw(4) << statusMsg->y << " m, "
-    //           << "Z=" << std::setw(4) << statusMsg->z << " m" << std::endl;
+      // std::cout<<"位置信息来了"<<std::endl;
+      // struct adhocl_ext_node_status_report *rep = (adhocl_ext_node_status_report *)msg;
+      // std::cout<<"ip: "<<rep->ip_address<<"空间坐标：x= "<<rep->x<<" y= "
+      //          <<rep->y<<" z= "<<rep->z<<std::endl;
     return HandleAdhocExtNodeStatusReport(
         (struct adhocl_ext_node_status_report*) msg, swtch,xid);
      }
+    case ADHOC_EXT_FLOW_STATUS_REPORT: 
+    {
+    return HandleAdhocExtFlowStatusReport(
+      (struct adhocl_ext_flow_status_report*) msg, swtch,xid);
+    }
     case OFPT_EXPERIMENTER:
     default:
       return ofl_error(OFPET_BAD_REQUEST, OFPGMFC_BAD_TYPE);

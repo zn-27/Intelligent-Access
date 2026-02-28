@@ -158,7 +158,8 @@ enum ofp_type
     ADHOC_EXT_STAINFO = 33 ,              //交换机发给controller
     ADHOC_EXT_TEST = 34 ,                //TEST
     ADHOC_EXT_CHANGELOGICAL = 35 ,          //组网模式切换
-    ADHOC_EXT_NODE_STATUS_REPORT = 36
+    ADHOC_EXT_NODE_STATUS_REPORT = 36,
+    ADHOC_EXT_FLOW_STATUS_REPORT =37
     //--------------------------------
 };
 
@@ -307,7 +308,19 @@ struct adhocp_ext_node_status_report
     float z;
 
 };
-
+// 上传FLOW信息
+struct adhocp_ext_flow_status_report {
+    struct ofp_header header; // OpenFlow 消息头
+    uint32_t vendor;              // 供应商 ID (如 0x12345678)
+    uint32_t subtype;             // 子类型 (如 8002)
+    
+    uint32_t throughput;     // 对应 throughputKbps
+    uint32_t delay;          // 对应 delayMs
+    uint32_t jitter;         // 对应 jitterMs
+    
+    uint16_t port;           // 对应结构体的 port
+    uint16_t loss_rate;      // 对应 lossRate (10000倍放大)
+};
 //-------------------------------------------------------------------
 /* Switch configuration. */
 struct ofp_switch_config
