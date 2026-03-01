@@ -1,0 +1,1279 @@
+
+╭─── Claude Code v2.1.53 ──────────────────────────────────────────────────────╮
+│                                         │ Tips for getting started           │
+│              Welcome back!              │ Run /init to create a CLAUDE.md f… │
+│                                         │ ────────────────────────────────── │
+│                 ▐▛███▜▌                 │ Recent activity                    │
+│                ▝▜█████▛▘                │ No recent activity                 │
+│                  ▘▘ ▝▝                  │                                    │
+│                                         │                                    │
+│        glm-5 · API Usage Billing        │                                    │
+│   ~/tarballs/ns-allinone-3.34/ns-3.34   │                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  /model to try Opus 4.6
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ 动态端口捕获实现方案（带吞吐量阈值过滤）                                     │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ 当前问题：                                                                   │
+│ - 端口到链路索引的映射是硬编码的                                             │
+│ - 只有端口 9-12 被映射                                                       │
+│ - 最大链路数限制为 10                                                        │
+│ - 无法根据实际流量动态过滤端口                                               │
+│                                                                              │
+│ 用户需求：                                                                   │
+│ 1. 自动发现并注册所有发送流量数据的端口                                      │
+│ 2. 最大链路数设置为 64                                                       │
+│ 3. 动态吞吐量阈值过滤：只有达到阈值的端口才注册                              │
+│ 4. 临时观察机制：低于阈值的端口进入观察列表                                  │
+│ 5. 自动清理：已注册端口吞吐量下降到阈值以下时删除注册                        │
+│                                                                              │
+│ 目标：                                                                       │
+│ - 实现智能端口发现和动态生命周期管理                                         │
+│ - 支持最多 64 个活跃链路                                                     │
+│ - 根据实际流量动态调整端口状态                                               │
+│                                                                              │
+│ ---                                                                          │
+│ 设计方案                                                                     │
+│                                                                              │
+│ 端口状态机                                                                   │
+│                                                                              │
+│                     +-----------------+                                      │
+│                     |   新端口到达     |                                     │
+│                     +--------+--------+                                      │
+│                              |                                               │
+│                              v                                               │
+│                     吞吐量 >= 动态阈值?                                      │
+│                     /                \                                       │
+│                   NO                  YES                                    │
+│                   /                    \                                     │
+│                  v                      v                                    │
+│         +-------+--------+    +--------+--------+                            │
+│         |  临时观察状态    |    |   已注册状态     |                         │
+│         |  (m_observedPorts)|   | (m_portToLinkIndex)|                       │
+│         +-------+--------+    +--------+--------+                            │
+│                 |                      |                                     │
+│                 |  连续N次达到阈值       |  吞吐量 < 动态阈值                │
+│                 |                      |  且持续M个周期                      │
+│                 v                      v                                     │
+│         +-------+--------+    +--------+--------+                            │
+│         |   提升为注册     |    |   删除注册       |                         │
+│         +----------------+    +-----------------+                            │
+│                                                                              │
+│ 动态阈值计算                                                                 │
+│                                                                              │
+│ 动态阈值 = max(最小阈值, 当前活跃端口平均吞吐量 × 系数)                      │
+│                                                                              │
+│ 参数：                                                                       │
+│ - MIN_THROUGHPUT_THRESHOLD = 50 Kbps（最小阈值）                             │
+│ - THRESHOLD_COEFFICIENT = 0.3（平均值的30%）                                 │
+│ - OBSERVE_COUNT_THRESHOLD = 3（连续3次达到阈值才注册）                       │
+│ - INACTIVE_COUNT_THRESHOLD = 5（连续5次低于阈值才删除）                      │
+│                                                                              │
+│ ---                                                                          │
+│ 实现步骤                                                                     │
+│                                                                              │
+│ 步骤1：修改头文件                                                            │
+│                                                                              │
+│ 文件: contrib/ofswitch13/model/ofswitch13-learning-controller.h              │
+│                                                                              │
+│ 修改 MAX_LINKS 常量：                                                        │
+│ static constexpr int MAX_LINKS = 64;  // 从 10 改为 64                       │
+│                                                                              │
+│ 新增端口观察信息结构体（在 private 部分）：                                  │
+│ // 端口观察信息（用于临时观察低于阈值的端口）                                │
+│ struct PortObservationInfo {                                                 │
+│     double firstSeenTime;     // 首次发现时间                                │
+│     double lastSeenTime;      // 最后发现时间                                │
+│     uint32_t consecutiveHits; // 连续达到阈值次数                            │
+│     double lastThroughput;    // 最后一次吞吐量                              │
+│                                                                              │
+│     PortObservationInfo()                                                    │
+│         : firstSeenTime(0), lastSeenTime(0), consecutiveHits(0),             │
+│ lastThroughput(0) {}                                                         │
+│ };                                                                           │
+│                                                                              │
+│ 新增端口注册信息结构体（在 private 部分）：                                  │
+│ // 端口注册信息（已注册的活跃端口）                                          │
+│ struct PortRegistrationInfo {                                                │
+│     int linkIndex;            // 分配的链路索引                              │
+│     double firstSeenTime;     // 首次注册时间                                │
+│     double lastUpdateTime;    // 最后更新时间                                │
+│     uint64_t reportCount;     // 累计上报次数                                │
+│     uint32_t consecutiveLows; // 连续低于阈值次数                            │
+│     double lastThroughput;    // 最后一次吞吐量                              │
+│                                                                              │
+│     PortRegistrationInfo()                                                   │
+│         : linkIndex(-1), firstSeenTime(0), lastUpdateTime(0),                │
+│           reportCount(0), consecutiveLows(0), lastThroughput(0) {}           │
+│ };                                                                           │
+│                                                                              │
+│ 新增成员变量（在 private 部分）：                                            │
+│ // 动态阈值参数                                                              │
+│ static constexpr double MIN_THROUGHPUT_THRESHOLD = 50.0;   // Kbps，最小阈值 │
+│ static constexpr double THRESHOLD_COEFFICIENT = 0.3;        // 平均值系数    │
+│ static constexpr uint32_t OBSERVE_COUNT_THRESHOLD = 3;      //               │
+│ 观察阈值：连续N次达到才注册                                                  │
+│ static constexpr uint32_t INACTIVE_COUNT_THRESHOLD = 5;     //               │
+│ 失活阈值：连续N次低于才删除                                                  │
+│                                                                              │
+│ // 动态阈值管理                                                              │
+│ double m_currentThroughputThreshold;  // 当前动态阈值                        │
+│                                                                              │
+│ // 端口状态管理                                                              │
+│ std::map<uint16_t, PortObservationInfo> m_observedPorts;  // 临时观察端口    │
+│ std::map<uint16_t, PortRegistrationInfo> m_portRegistry;   // 已注册端口     │
+│ std::set<int> m_usedLinkIndices;                           //                │
+│ 已使用的链路索引集合                                                         │
+│                                                                              │
+│ 新增方法声明（在 private 部分）：                                            │
+│ // 动态阈值管理                                                              │
+│ double CalculateDynamicThreshold();                    // 计算动态阈值       │
+│ void UpdateDynamicThreshold();                         // 更新动态阈值       │
+│                                                                              │
+│ // 端口状态管理                                                              │
+│ int RegisterPort(uint16_t port);                       // 注册新端口         │
+│ void UnregisterPort(uint16_t port);                    // 删除端口注册       │
+│ bool IsPortRegistered(uint16_t port) const;            // 检查端口是否已注册 │
+│ bool IsPortObserved(uint16_t port) const;              //                    │
+│ 检查端口是否在观察列表                                                       │
+│                                                                              │
+│ int AllocateLinkIndex();                               // 分配新的链路索引   │
+│ void DeallocateLinkIndex(int index);                   // 释放链路索引       │
+│                                                                              │
+│ // 端口处理                                                                  │
+│ void ProcessPortReport(uint16_t port, double throughput);  //                │
+│ 处理端口流量上报                                                             │
+│ void CheckInactivePorts();                             // 检查并清理失活端口 │
+│                                                                              │
+│ ---                                                                          │
+│ 步骤2：修改构造函数                                                          │
+│                                                                              │
+│ 文件: contrib/ofswitch13/model/ofswitch13-learning-controller.cc             │
+│                                                                              │
+│ OFSwitch13LearningController::OFSwitch13LearningController()                 │
+│                  : m_networkQLearning(0.4, 0.6, 0.2), m_activeLinkCount(0),  │
+│                    m_currentThroughputThreshold(MIN_THROUGHPUT_THRESHOLD)    │
+│ {                                                                            │
+│     // 动态初始化链路统计数组                                                │
+│     m_linkStats.resize(MAX_LINKS);                                           │
+│     m_activeLinks.resize(MAX_LINKS, false);                                  │
+│                                                                              │
+│     // 移除硬编码端口映射，改为动态发现                                      │
+│     std::cout << "[动态端口] 端口自动发现机制已启用" << std::endl;           │
+│     std::cout << "[动态端口] 最大链路数: " << MAX_LINKS << std::endl;        │
+│     std::cout << "[动态阈值] 初始阈值: " << m_currentThroughputThreshold <<  │
+│ " Kbps" << std::endl;                                                        │
+│                                                                              │
+│     m_currentMode = 0;                                                       │
+│     // ... 其余初始化代码保持不变 ...                                        │
+│ }                                                                            │
+│                                                                              │
+│ ---                                                                          │
+│ 步骤3：修改 HandleAdhocExtFlowStatusReport                                   │
+│                                                                              │
+│ 文件: contrib/ofswitch13/model/ofswitch13-learning-controller.cc             │
+│                                                                              │
+│ ofl_err                                                                      │
+│ OFSwitch13LearningController::HandleAdhocExtFlowStatusReport(                │
+│     struct adhocl_ext_flow_status_report *msg,                               │
+│     Ptr<const RemoteSwitch> swtch,                                           │
+│     uint32_t xid)                                                            │
+│ {                                                                            │
+│     if (msg == nullptr) {                                                    │
+│         NS_LOG_ERROR("接收到空的流量上报消息！");                            │
+│         return -1;                                                           │
+│     }                                                                        │
+│                                                                              │
+│     uint16_t port     = msg->port;                                           │
+│     uint32_t thr      = msg->throughput;                                     │
+│     uint32_t delay    = msg->delay;                                          │
+│     uint32_t jitter   = msg->jitter;                                         │
+│     double actualLoss = static_cast<double>(msg->loss_rate) / 10000.0;       │
+│     double throughput = static_cast<double>(thr);                            │
+│                                                                              │
+│     // 更新动态阈值                                                          │
+│     UpdateDynamicThreshold();                                                │
+│                                                                              │
+│     // 处理端口流量上报（内部决定是否注册）                                  │
+│     ProcessPortReport(port, throughput);                                     │
+│                                                                              │
+│     // 获取有效的链路索引（可能为-1如果未注册）                              │
+│     int linkIndex = -1;                                                      │
+│     if (IsPortRegistered(port)) {                                            │
+│         linkIndex = m_portToLinkIndex[port];                                 │
+│     }                                                                        │
+│                                                                              │
+│     // 只有已注册的端口才更新统计                                            │
+│     if (linkIndex >= 0 && linkIndex < MAX_LINKS) {                           │
+│         m_linkStats[linkIndex].throughput = throughput;                      │
+│         m_linkStats[linkIndex].delay      = static_cast<double>(delay);      │
+│         m_linkStats[linkIndex].lossRate   = actualLoss;                      │
+│         m_linkStats[linkIndex].jitter     = static_cast<double>(jitter);     │
+│                                                                              │
+│         if (!m_activeLinks[linkIndex]) {                                     │
+│             m_activeLinks[linkIndex] = true;                                 │
+│             m_activeLinkCount++;                                             │
+│         }                                                                    │
+│     }                                                                        │
+│                                                                              │
+│     ofl_msg_free((struct ofl_msg_header *)msg, 0);                           │
+│     return 0;                                                                │
+│ }                                                                            │
+│                                                                              │
+│ ---                                                                          │
+│ 步骤4：新增核心方法实现                                                      │
+│                                                                              │
+│ 文件:                                                                        │
+│ contrib/ofswitch13/model/ofswitch13-learning-controller.cc（在文件末尾添加） │
+│                                                                              │
+│ // ============== 动态阈值管理 ==============                                │
+│                                                                              │
+│ double                                                                       │
+│ OFSwitch13LearningController::CalculateDynamicThreshold()                    │
+│ {                                                                            │
+│     if (m_portRegistry.empty()) {                                            │
+│         return MIN_THROUGHPUT_THRESHOLD;                                     │
+│     }                                                                        │
+│                                                                              │
+│     // 计算所有已注册端口的平均吞吐量                                        │
+│     double totalThroughput = 0.0;                                            │
+│     for (const auto& entry : m_portRegistry) {                               │
+│         totalThroughput += entry.second.lastThroughput;                      │
+│     }                                                                        │
+│     double avgThroughput = totalThroughput / m_portRegistry.size();          │
+│                                                                              │
+│     // 动态阈值 = max(最小阈值, 平均值 × 系数)                               │
+│     double threshold = std::max(MIN_THROUGHPUT_THRESHOLD,                    │
+│                                 avgThroughput * THRESHOLD_COEFFICIENT);      │
+│                                                                              │
+│     return threshold;                                                        │
+│ }                                                                            │
+│                                                                              │
+│ void                                                                         │
+│ OFSwitch13LearningController::UpdateDynamicThreshold()                       │
+│ {                                                                            │
+│     double newThreshold = CalculateDynamicThreshold();                       │
+│                                                                              │
+│     // 阈值变化超过10%时才更新（避免抖动）                                   │
+│     if (fabs(newThreshold - m_currentThroughputThreshold) /                  │
+│ m_currentThroughputThreshold > 0.1) {                                        │
+│         m_currentThroughputThreshold = newThreshold;                         │
+│         std::cout << "[动态阈值] 更新阈值: " << m_currentThroughputThreshold │
+│  << " Kbps" << std::endl;                                                    │
+│     }                                                                        │
+│ }                                                                            │
+│                                                                              │
+│ // ============== 端口状态检查 ==============                                │
+│                                                                              │
+│ bool                                                                         │
+│ OFSwitch13LearningController::IsPortRegistered(uint16_t port) const          │
+│ {                                                                            │
+│     return m_portToLinkIndex.find(port) != m_portToLinkIndex.end();          │
+│ }                                                                            │
+│                                                                              │
+│ bool                                                                         │
+│ OFSwitch13LearningController::IsPortObserved(uint16_t port) const            │
+│ {                                                                            │
+│     return m_observedPorts.find(port) != m_observedPorts.end();              │
+│ }                                                                            │
+│                                                                              │
+│ // ============== 链路索引管理 ==============                                │
+│                                                                              │
+│ int                                                                          │
+│ OFSwitch13LearningController::AllocateLinkIndex()                            │
+│ {                                                                            │
+│     if (m_activeLinkCount >= MAX_LINKS) {                                    │
+│         NS_LOG_WARN("无法分配链路索引: 已达最大链路数 " << MAX_LINKS);       │
+│         return -1;                                                           │
+│     }                                                                        │
+│                                                                              │
+│     for (int i = 0; i < MAX_LINKS; ++i) {                                    │
+│         if (m_usedLinkIndices.find(i) == m_usedLinkIndices.end()) {          │
+│             m_usedLinkIndices.insert(i);                                     │
+│             return i;                                                        │
+│         }                                                                    │
+│     }                                                                        │
+│                                                                              │
+│     return -1;                                                               │
+│ }                                                                            │
+│                                                                              │
+│ void                                                                         │
+│ OFSwitch13LearningController::DeallocateLinkIndex(int index)                 │
+│ {                                                                            │
+│     m_usedLinkIndices.erase(index);                                          │
+│     m_activeLinks[index] = false;                                            │
+│     m_activeLinkCount--;                                                     │
+│ }                                                                            │
+│                                                                              │
+│ // ============== 端口注册/注销 ==============                               │
+│                                                                              │
+│ int                                                                          │
+│ OFSwitch13LearningController::RegisterPort(uint16_t port)                    │
+│ {                                                                            │
+│     if (IsPortRegistered(port)) {                                            │
+│         return m_portToLinkIndex[port];                                      │
+│     }                                                                        │
+│                                                                              │
+│     int linkIndex = AllocateLinkIndex();                                     │
+│     if (linkIndex < 0) {                                                     │
+│         return -1;                                                           │
+│     }                                                                        │
+│                                                                              │
+│     // 创建注册信息                                                          │
+│     PortRegistrationInfo info;                                               │
+│     info.linkIndex = linkIndex;                                              │
+│     info.firstSeenTime = Simulator::Now().GetSeconds();                      │
+│     info.lastUpdateTime = info.firstSeenTime;                                │
+│     info.reportCount = 1;                                                    │
+│     info.consecutiveLows = 0;                                                │
+│     info.lastThroughput = 0.0;                                               │
+│                                                                              │
+│     m_portToLinkIndex[port] = linkIndex;                                     │
+│     m_portRegistry[port] = info;                                             │
+│                                                                              │
+│     // 初始化链路统计                                                        │
+│     m_linkStats[linkIndex] = LinkStats();                                    │
+│                                                                              │
+│     std::cout << "[端口注册] 端口 " << port << " -> 链路索引 " << linkIndex  │
+│               << " (活跃: " << m_activeLinkCount << "/" << MAX_LINKS << ")"  │
+│ << std::endl;                                                                │
+│                                                                              │
+│     return linkIndex;                                                        │
+│ }                                                                            │
+│                                                                              │
+│ void                                                                         │
+│ OFSwitch13LearningController::UnregisterPort(uint16_t port)                  │
+│ {                                                                            │
+│     auto it = m_portRegistry.find(port);                                     │
+│     if (it == m_portRegistry.end()) {                                        │
+│         return;                                                              │
+│     }                                                                        │
+│                                                                              │
+│     int linkIndex = it->second.linkIndex;                                    │
+│                                                                              │
+│     std::cout << "[端口注销] 端口 " << port << " (链路索引 " << linkIndex << │
+│  ")" << std::endl;                                                           │
+│                                                                              │
+│     DeallocateLinkIndex(linkIndex);                                          │
+│     m_portToLinkIndex.erase(port);                                           │
+│     m_portRegistry.erase(it);                                                │
+│ }                                                                            │
+│                                                                              │
+│ // ============== 端口流量处理核心逻辑 ==============                        │
+│                                                                              │
+│ void                                                                         │
+│ OFSwitch13LearningController::ProcessPortReport(uint16_t port, double        │
+│ throughput)                                                                  │
+│ {                                                                            │
+│     double now = Simulator::Now().GetSeconds();                              │
+│                                                                              │
+│     // 情况1：端口已注册                                                     │
+│     if (IsPortRegistered(port)) {                                            │
+│         auto& info = m_portRegistry[port];                                   │
+│         info.lastUpdateTime = now;                                           │
+│         info.reportCount++;                                                  │
+│         info.lastThroughput = throughput;                                    │
+│                                                                              │
+│         if (throughput < m_currentThroughputThreshold) {                     │
+│             info.consecutiveLows++;                                          │
+│                                                                              │
+│             // 连续N次低于阈值，注销端口                                     │
+│             if (info.consecutiveLows >= INACTIVE_COUNT_THRESHOLD) {          │
+│                 std::cout << "[端口失活] 端口 " << port << " 连续 " <<       │
+│ info.consecutiveLows                                                         │
+│                           << " 次低于阈值 (" << throughput << " < " <<       │
+│ m_currentThroughputThreshold << ")" << std::endl;                            │
+│                 UnregisterPort(port);                                        │
+│             }                                                                │
+│         } else {                                                             │
+│             // 达到阈值，重置计数                                            │
+│             info.consecutiveLows = 0;                                        │
+│         }                                                                    │
+│         return;                                                              │
+│     }                                                                        │
+│                                                                              │
+│     // 情况2：端口在观察列表                                                 │
+│     if (IsPortObserved(port)) {                                              │
+│         auto& info = m_observedPorts[port];                                  │
+│         info.lastSeenTime = now;                                             │
+│         info.lastThroughput = throughput;                                    │
+│                                                                              │
+│         if (throughput >= m_currentThroughputThreshold) {                    │
+│             info.consecutiveHits++;                                          │
+│                                                                              │
+│             // 连续N次达到阈值，注册端口                                     │
+│             if (info.consecutiveHits >= OBSERVE_COUNT_THRESHOLD) {           │
+│                 std::cout << "[端口提升] 端口 " << port << "                 │
+│ 从观察列表提升为注册"                                                        │
+│                           << " (连续 " << info.consecutiveHits << "          │
+│ 次达到阈值)" << std::endl;                                                   │
+│                 m_observedPorts.erase(port);                                 │
+│                 RegisterPort(port);                                          │
+│             }                                                                │
+│         } else {                                                             │
+│             // 未达到阈值，重置计数                                          │
+│             info.consecutiveHits = 0;                                        │
+│         }                                                                    │
+│         return;                                                              │
+│     }                                                                        │
+│                                                                              │
+│     // 情况3：新端口                                                         │
+│     if (throughput >= m_currentThroughputThreshold) {                        │
+│         // 达到阈值，加入观察列表                                            │
+│         PortObservationInfo info;                                            │
+│         info.firstSeenTime = now;                                            │
+│         info.lastSeenTime = now;                                             │
+│         info.consecutiveHits = 1;                                            │
+│         info.lastThroughput = throughput;                                    │
+│                                                                              │
+│         m_observedPorts[port] = info;                                        │
+│                                                                              │
+│         std::cout << "[端口观察] 新端口 " << port << " 加入观察列表"         │
+│                   << " (吞吐: " << throughput << " Kbps >= 阈值: " <<        │
+│ m_currentThroughputThreshold << ")" << std::endl;                            │
+│     } else {                                                                 │
+│         NS_LOG_DEBUG("忽略低吞吐端口 " << port << " (吞吐: " << throughput   │
+│ << " < 阈值: " << m_currentThroughputThreshold << ")");                      │
+│     }                                                                        │
+│ }                                                                            │
+│                                                                              │
+│ // ============== 失活端口检查（可选，定期调用）=============                │
+│                                                                              │
+│ void                                                                         │
+│ OFSwitch13LearningController::CheckInactivePorts()                           │
+│ {                                                                            │
+│     std::vector<uint16_t> toRemove;                                          │
+│                                                                              │
+│     for (auto& entry : m_observedPorts) {                                    │
+│         double now = Simulator::Now().GetSeconds();                          │
+│         // 观察列表超过60秒未更新，移除                                      │
+│         if (now - entry.second.lastSeenTime > 60.0) {                        │
+│             toRemove.push_back(entry.first);                                 │
+│         }                                                                    │
+│     }                                                                        │
+│                                                                              │
+│     for (uint16_t port : toRemove) {                                         │
+│         std::cout << "[观察超时] 端口 " << port << " 从观察列表移除" <<      │
+│ std::endl;                                                                   │
+│         m_observedPorts.erase(port);                                         │
+│     }                                                                        │
+│ }                                                                            │
+│                                                                              │
+│ ---                                                                          │
+│ 边界情况处理                                                                 │
+│                                                                              │
+│ ┌──────────────────────┬───────────────────────────────────────┐             │
+│ │         场景         │               处理策略                │             │
+│ ├──────────────────────┼───────────────────────────────────────┤             │
+│ │ 端口数量超限 (>64)   │ 返回-1，端口留在观察列表等待空位      │             │
+│ ├──────────────────────┼───────────────────────────────────────┤             │
+│ │ 重复注册             │ 检测到已注册时直接返回现有索引        │             │
+│ ├──────────────────────┼───────────────────────────────────────┤             │
+│ │ 所有端口吞吐量为0    │ 使用最小阈值 MIN_THROUGHPUT_THRESHOLD │             │
+│ ├──────────────────────┼───────────────────────────────────────┤             │
+│ │ 阈值频繁抖动         │ 只有变化超过10%才更新阈值             │             │
+│ ├──────────────────────┼───────────────────────────────────────┤             │
+│ │ 观察列表长时间无活动 │ 定期清理超过60秒未更新的观察项        │             │
+│ └──────────────────────┴───────────────────────────────────────┘             │
+│                                                                              │
+│ ---                                                                          │
+│ 参数配置                                                                     │
+│                                                                              │
+│ ┌──────────────────────────┬─────────┬─────────────────────────────┐         │
+│ │           参数           │ 默认值  │            说明             │         │
+│ ├──────────────────────────┼─────────┼─────────────────────────────┤         │
+│ │ MAX_LINKS                │ 64      │ 最大链路数                  │         │
+│ ├──────────────────────────┼─────────┼─────────────────────────────┤         │
+│ │ MIN_THROUGHPUT_THRESHOLD │ 50 Kbps │ 最小吞吐量阈值              │         │
+│ ├──────────────────────────┼─────────┼─────────────────────────────┤         │
+│ │ THRESHOLD_COEFFICIENT    │ 0.3     │ 动态阈值系数（平均值的30%） │         │
+│ ├──────────────────────────┼─────────┼─────────────────────────────┤         │
+│ │ OBSERVE_COUNT_THRESHOLD  │ 3       │ 连续3次达到阈值才注册       │         │
+│ ├──────────────────────────┼─────────┼─────────────────────────────┤         │
+│ │ INACTIVE_COUNT_THRESHOLD │ 5       │ 连续5次低于阈值才删除       │         │
+│ └──────────────────────────┴─────────┴─────────────────────────────┘         │
+│                                                                              │
+│ ---                                                                          │
+│ 关键文件                                                                     │
+│                                                                              │
+│ ┌───────────────────────────────────┬─────────────────────────────────────┐  │
+│ │               文件                │              修改内容               │  │
+│ ├───────────────────────────────────┼─────────────────────────────────────┤  │
+│ │ contrib/ofswitch13/model/ofswitch │ 修改MAX_LINKS、添加2个结构体、新增  │  │
+│ │ 13-learning-controller.h          │ 成员变量、新增方法声明              │  │
+│ ├───────────────────────────────────┼─────────────────────────────────────┤  │
+│ │ contrib/ofswitch13/model/ofswitch │ 修改构造函数、HandleAdhocExtFlowSta │  │
+│ │ 13-learning-controller.cc         │ tusReport、新增所有方法实现         │  │
+│ └───────────────────────────────────┴─────────────────────────────────────┘  │
+│                                                                              │
+│ ---                                                                          │
+│ 测试验证                                                                     │
+│                                                                              │
+│ cd /home/cs18/tarballs/ns-allinone-3.34/ns-3.34                              │
+│ ./waf configure                                                              │
+│ ./waf build                                                                  │
+│ ./waf --run "train4"                                                         │
+│                                                                              │
+│ 验证点：                                                                     │
+│ 1. 输出显示 [动态阈值] 初始阈值: XX Kbps                                     │
+│ 2. 低于阈值的新端口显示 [端口观察] 新端口 XX 加入观察列表                    │
+│ 3. 连续3次达到阈值显示 [端口提升] 端口 XX 从观察列表提升为注册               │
+│ 4. 已注册端口连续5次低于阈值显示 [端口失活] 端口 XX                          │
+│ 5. 阈值动态调整显示 [动态阈值] 更新阈值: XX Kbps                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+● I'll implement this dynamic port capture mechanism with throughput threshold
+  filtering. Let me start by reading the current files to understand the
+  existing code structure.
+
+● Read 2 files (ctrl+o to expand)
+
+● Let me find the correct path for these files.
+
+● Searched for 2 patterns (ctrl+o to expand)
+
+● Found the files. Let me read them.
+
+● Read 2 files (ctrl+o to expand)
+
+● Let me read more of the .cc file to see the complete implementation.
+
+● Read 1 file (ctrl+o to expand)
+
+● Let me search for the HandleAdhocExtFlowStatusReport function and also see the
+   end of the file.
+
+● Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Now I have a clear understanding of the code structure. Let me implement the
+  plan step by step.
+
+● Let me modify the header file. First, I'll change MAX_LINKS and add the new
+  structures.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.h)
+  ⎿  Added 1 line, removed 1 line
+      251          std::map<uint16_t, int> m_portToLinkIndex;  //        
+           端口到链路索引的映射                                          
+      252          std::vector<bool> m_activeLinks;            //        
+           有效链路标志                                                  
+      253          int m_activeLinkCount;                      //        
+           实际有效链路数量                                              
+      254 -        static constexpr int MAX_LINKS = 10                   
+          -;        // 最大链路数                                        
+      254 +        static constexpr int MAX_LINKS = 64                   
+          +;        // 最大链路数（从10扩展到64）                        
+      255                                                                
+      256          // 新增函数声明                                       
+      257          std::vector<double> CalculateThroughputWeights();  // 
+            动态计算吞吐量权重                                           
+
+● Now let me add the new structures after the LinkStats struct.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.h)
+  ⎿  Added 28 lines, removed 5 lines
+      11                                                                 
+      12      struct LinkStats {                                         
+      13      uint64_t mac_address;                                      
+      14 -                                                               
+      14 +                                                               
+      15      // 当前值                                                  
+      16      double throughput;    // 对应报错中的 s.throughput         
+      17      double lossRate;      // 对应报错中的 s.lossRate           
+      18      double delay;         // 对应报错中的 s.delay              
+      19      double jitter;                                             
+      20 -                                                               
+      20 +                                                               
+      21      // 历史值（用于计算奖励的增量 Improvement）                
+      22      double prevThroughput; // 对应报错中的 s.prevThroughput    
+      23      double prevLossRate;   // 对应报错中的 s.prevLossRate      
+     ...
+      26      // 你之前定义的其他字段可以保留                            
+      27      uint32_t rxPackets;                                        
+      28      uint32_t txPackets;                                        
+      29 -    double   throughputKbps;                                   
+      30 -    double   lastRssi;                                         
+      31 -};                                                             
+      29 +    double   throughputKbps;                                   
+      30 +    double   lastRssi;                                         
+      31 +    };                                                         
+      32                                                                 
+      33 +    // 端口观察信息（用于临时观察低于阈值的端口）              
+      34 +    struct PortObservationInfo {                               
+      35 +        double firstSeenTime;     // 首次发现时间              
+      36 +        double lastSeenTime;      // 最后发现时间              
+      37 +        uint32_t consecutiveHits; // 连续达到阈值次数          
+      38 +        double lastThroughput;    // 最后一次吞吐量            
+      39                                                                 
+      40 +        PortObservationInfo()                                  
+      41 +            : firstSeenTime(0), lastSeenTime(0),               
+         +consecutiveHits(0), lastThroughput(0) {}                       
+      42 +    };                                                         
+      43                                                                 
+      44 +    // 端口注册信息（已注册的活跃端口）                        
+      45 +    struct PortRegistrationInfo {                              
+      46 +        int linkIndex;            // 分配的链路索引            
+      47 +        double firstSeenTime;     // 首次注册时间              
+      48 +        double lastUpdateTime;    // 最后更新时间              
+      49 +        uint64_t reportCount;     // 累计上报次数              
+      50 +        uint32_t consecutiveLows; // 连续低于阈值次数          
+      51 +        double lastThroughput;    // 最后一次吞吐量            
+      52 +                                                               
+      53 +        PortRegistrationInfo()                                 
+      54 +            : linkIndex(-1), firstSeenTime(0),                 
+         +lastUpdateTime(0),                                             
+      55 +              reportCount(0), consecutiveLows(0),              
+         +lastThroughput(0) {}                                           
+      56 +    };                                                         
+      57 +                                                               
+      58      // 主机信息结构体：IP、MAC、端口（域内主机）               
+      59      struct HostInfo {                                          
+      60          Ipv4Address ip;       // 主机IP地址                    
+
+● Now let me add the new member variables and method declarations in the private
+   section. First, let me read the updated header file to find the right
+  location.
+
+● Read 1 file (ctrl+o to expand)
+
+● Now let me add the new member variables and method declarations after the link
+   state management section.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.h)
+  ⎿  Added 32 lines
+      278                                                                
+      279          // 新增函数声明                                       
+      280          std::vector<double> CalculateThroughputWeights();  // 
+            动态计算吞吐量权重                                           
+      281 +                                                              
+      282 +        // ============== 动态端口捕获相关 ==============     
+      283 +        // 动态阈值参数                                       
+      284 +        static constexpr double MIN_THROUGHPUT_THRESHOLD =    
+          +50.0;   // Kbps，最小阈值                                     
+      285 +        static constexpr double THRESHOLD_COEFFICIENT = 0.3;  
+          +       // 平均值系数                                          
+      286 +        static constexpr uint32_t OBSERVE_COUNT_THRESHOLD =   
+          +3;      // 观察阈值：连续N次达到才注册                        
+      287 +        static constexpr uint32_t INACTIVE_COUNT_THRESHOLD =  
+          +5;     // 失活阈值：连续N次低于才删除                         
+      288 +                                                              
+      289 +        // 动态阈值管理                                       
+      290 +        double m_currentThroughputThreshold;  // 当前动态阈值 
+      291 +                                                              
+      292 +        // 端口状态管理                                       
+      293 +        std::map<uint16_t, PortObservationInfo>               
+          +m_observedPorts;  // 临时观察端口                             
+      294 +        std::map<uint16_t, PortRegistrationInfo>              
+          +m_portRegistry;   // 已注册端口                               
+      295 +        std::set<int> m_usedLinkIndices;                      
+          +      // 已使用的链路索引集合                                 
+      296 +                                                              
+      297 +        // 动态阈值管理方法                                   
+      298 +        double CalculateDynamicThreshold();                   
+          +  // 计算动态阈值                                             
+      299 +        void UpdateDynamicThreshold();                        
+          +  // 更新动态阈值                                             
+      300 +                                                              
+      301 +        // 端口状态管理方法                                   
+      302 +        int RegisterPort(uint16_t port);                      
+          +  // 注册新端口                                               
+      303 +        void UnregisterPort(uint16_t port);                   
+          +  // 删除端口注册                                             
+      304 +        bool IsPortRegistered(uint16_t port) const;           
+          +  // 检查端口是否已注册                                       
+      305 +        bool IsPortObserved(uint16_t port) const;             
+          +  // 检查端口是否在观察列表                                   
+      306 +                                                              
+      307 +        int AllocateLinkIndex();                              
+          +  // 分配新的链路索引                                         
+      308 +        void DeallocateLinkIndex(int index);                  
+          +  // 释放链路索引                                             
+      309 +                                                              
+      310 +        // 端口处理方法                                       
+      311 +        void ProcessPortReport(uint16_t port, double          
+          +throughput);  // 处理端口流量上报                             
+      312 +        void CheckInactivePorts();                            
+          +  // 检查并清理失活端口                                       
+      313      };                                                        
+      314                                                                
+      315  } // namespace ns3                                            
+
+● I need to add the <set> include for std::set. Let me check and add it.
+
+● Read 1 file (ctrl+o to expand)
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.h)
+  ⎿  Added 2 lines
+       4                                                                 
+       5  #include "ofswitch13-controller.h"                             
+       6  #include "ns3/ipv4-address.h"                                  
+       7 +#include <set>                                                 
+       8 +#include <map>                                                 
+       9                                                                 
+      10                                                                 
+      11  namespace ns3                                                  
+
+● Now let me modify the constructor in the .cc file.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.cc)
+  ⎿  Added 6 lines, removed 6 lines
+      39                                                                 
+      40  // const float                                                 
+          OFSwitch13LearningController::DISTANCE_THRESHOLD = 50.0f;      
+      41  OFSwitch13LearningController::OFSwitch13LearningController()   
+      42 -                 : m_networkQLearning(0.4, 0.6, 0.2),          
+         -m_activeLinkCount(0) // alpha, gamma, epsilon                  
+      42 +                 : m_networkQLearning(0.4, 0.6, 0.2),          
+         +m_activeLinkCount(0),                                          
+      43 +                                                               
+         +m_currentThroughputThreshold(MIN_THROUGHPUT_THRESHOLD) //      
+         +alpha, gamma, epsilon                                          
+      44  {                                                              
+      45      // 动态初始化链路统计数组                                  
+      46      m_linkStats.resize(MAX_LINKS);                             
+      47      m_activeLinks.resize(MAX_LINKS, false);  // 初始化为false  
+      48                                                                 
+      49 -    // 配置端口到链路索引的映射（可扩展）                      
+      50 -    m_portToLinkIndex[9] = 0;                                  
+      51 -    m_portToLinkIndex[10] = 1;                                 
+      52 -    m_portToLinkIndex[11] = 2;                                 
+      53 -    m_portToLinkIndex[12] = 3;                                 
+      49 +    // 移除硬编码端口映射，改为动态发现                        
+      50 +    std::cout << "[动态端口] 端口自动发现机制已启用" <<        
+         +std::endl;                                                     
+      51 +    std::cout << "[动态端口] 最大链路数: " << MAX_LINKS <<     
+         +std::endl;                                                     
+      52 +    std::cout << "[动态阈值] 初始阈值: " <<                    
+         +m_currentThroughputThreshold << " Kbps" << std::endl;          
+      53                                                                 
+      54      m_currentMode = 0;                                         
+      55       // ==================== 初始化交换机互联端口映射（仅硬编  
+          码端口连接关系）====================                           
+
+● Now let me modify the HandleAdhocExtFlowStatusReport function.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.cc)
+  ⎿  Added 22 lines, removed 20 lines
+      894      uint32_t delay    = msg->delay;      // ms                
+      895      uint32_t jitter   = msg->jitter;     // ms                
+      896      double actualLoss = static_cast<double>(msg->loss_rate) / 
+            10000.0;                                                     
+      897 +    double throughput = static_cast<double>(thr);             
+      898                                                                
+      899 -    // 3. 使用映射表查找链路索引（替代硬编码 if-else）        
+      900 -    auto it = m_portToLinkIndex.find(port);                   
+      901 -    if (it != m_portToLinkIndex.end()) {                      
+      902 -        int linkIndex = it->second;                           
+      899 +    // 3. 更新动态阈值                                        
+      900 +    UpdateDynamicThreshold();                                 
+      901                                                                
+      902 -        if (linkIndex >= 0 && linkIndex < MAX_LINKS) {        
+      903 -            m_linkStats[linkIndex].throughput =               
+          -static_cast<double>(thr);                                     
+      904 -            m_linkStats[linkIndex].delay      =               
+          -static_cast<double>(delay);                                   
+      905 -            m_linkStats[linkIndex].lossRate   = actualLoss;   
+      906 -            m_linkStats[linkIndex].jitter     =               
+          -static_cast<double>(jitter);                                  
+      902 +    // 4. 处理端口流量上报（内部决定是否注册）                
+      903 +    ProcessPortReport(port, throughput);                      
+      904                                                                
+      905 -            // 标记链路为活跃状态（如果是首次）               
+      906 -            if (!m_activeLinks[linkIndex]) {                  
+      907 -                m_activeLinks[linkIndex] = true;              
+      908 -                m_activeLinkCount++;                          
+      909 -                std::cout << "[链路发现] 新链路激活: 端口 "   
+          -<< port                                                       
+      910 -                          << " -> 链路索引 " << linkIndex     
+      911 -                          << " (当前活跃链路数: " <<          
+          -m_activeLinkCount << ")" << std::endl;                        
+      912 -            }                                                 
+      905 +    // 5. 获取有效的链路索引（可能为-1如果未注册）            
+      906 +    int linkIndex = -1;                                       
+      907 +    if (IsPortRegistered(port)) {                             
+      908 +        linkIndex = m_portToLinkIndex[port];                  
+      909 +    }                                                         
+      910 +                                                              
+      911 +    // 6. 只有已注册的端口才更新统计                          
+      912 +    if (linkIndex >= 0 && linkIndex < MAX_LINKS) {            
+      913 +        m_linkStats[linkIndex].throughput = throughput;       
+      914 +        m_linkStats[linkIndex].delay      =                   
+          +static_cast<double>(delay);                                   
+      915 +        m_linkStats[linkIndex].lossRate   = actualLoss;       
+      916 +        m_linkStats[linkIndex].jitter     =                   
+          +static_cast<double>(jitter);                                  
+      917 +                                                              
+      918 +        if (!m_activeLinks[linkIndex]) {                      
+      919 +            m_activeLinks[linkIndex] = true;                  
+      920 +            m_activeLinkCount++;                              
+      921          }                                                     
+      922 -    } else {                                                  
+      923 -        NS_LOG_WARN("收到未映射的端口流量上报: " << port);    
+      922      }                                                         
+      923                                                                
+      924 -    // 4. 释放消息内存 (必须手动释放，否则会导致内存泄漏)     
+      924 +    // 7. 释放消息内存 (必须手动释放，否则会导致内存泄漏)     
+      925      ofl_msg_free((struct ofl_msg_header *)msg, 0);            
+      926                                                                
+      927      return 0;                                                 
+
+● Now let me add all the new method implementations at the end of the .cc file.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.cc)
+  ⎿  Added 219 lines
+      1375      }                                                        
+      1376  }                                                            
+      1377                                                               
+      1378 +// ============== 动态阈值管理 ==============                
+      1379                                                               
+      1380 +double                                                       
+      1381 +OFSwitch13LearningController::CalculateDynamicThreshold()    
+      1382 +{                                                            
+      1383 +    if (m_portRegistry.empty()) {                            
+      1384 +        return MIN_THROUGHPUT_THRESHOLD;                     
+      1385 +    }                                                        
+      1386                                                               
+      1387 +    // 计算所有已注册端口的平均吞吐量                        
+      1388 +    double totalThroughput = 0.0;                            
+      1389 +    for (const auto& entry : m_portRegistry) {               
+      1390 +        totalThroughput += entry.second.lastThroughput;      
+      1391 +    }                                                        
+      1392 +    double avgThroughput = totalThroughput /                 
+           +m_portRegistry.size();                                       
+      1393 +                                                             
+      1394 +    // 动态阈值 = max(最小阈值, 平均值 × 系数)               
+      1395 +    double threshold = std::max(MIN_THROUGHPUT_THRESHOLD,    
+      1396 +                                avgThroughput *              
+           +THRESHOLD_COEFFICIENT);                                      
+      1397 +                                                             
+      1398 +    return threshold;                                        
+      1399 +}                                                            
+      1400 +                                                             
+      1401 +void                                                         
+      1402 +OFSwitch13LearningController::UpdateDynamicThreshold()       
+      1403 +{                                                            
+      1404 +    double newThreshold = CalculateDynamicThreshold();       
+      1405 +                                                             
+      1406 +    // 阈值变化超过10%时才更新（避免抖动）                   
+      1407 +    if (fabs(newThreshold - m_currentThroughputThreshold) /  
+           +m_currentThroughputThreshold > 0.1) {                        
+      1408 +        m_currentThroughputThreshold = newThreshold;         
+      1409 +        std::cout << "[动态阈值] 更新阈值: " <<              
+           +m_currentThroughputThreshold << " Kbps" << std::endl;        
+      1410 +    }                                                        
+      1411 +}                                                            
+      1412 +                                                             
+      1413 +// ============== 端口状态检查 ==============                
+      1414 +                                                             
+      1415 +bool                                                         
+      1416 +OFSwitch13LearningController::IsPortRegistered(uint16_t      
+           +port) const                                                  
+      1417 +{                                                            
+      1418 +    return m_portToLinkIndex.find(port) !=                   
+           +m_portToLinkIndex.end();                                     
+      1419 +}                                                            
+      1420 +                                                             
+      1421 +bool                                                         
+      1422 +OFSwitch13LearningController::IsPortObserved(uint16_t port)  
+           +const                                                        
+      1423 +{                                                            
+      1424 +    return m_observedPorts.find(port) !=                     
+           +m_observedPorts.end();                                       
+      1425 +}                                                            
+      1426 +                                                             
+      1427 +// ============== 链路索引管理 ==============                
+      1428 +                                                             
+      1429 +int                                                          
+      1430 +OFSwitch13LearningController::AllocateLinkIndex()            
+      1431 +{                                                            
+      1432 +    if (m_activeLinkCount >= MAX_LINKS) {                    
+      1433 +        NS_LOG_WARN("无法分配链路索引: 已达最大链路数 " <<   
+           +MAX_LINKS);                                                  
+      1434 +        return -1;                                           
+      1435 +    }                                                        
+      1436 +                                                             
+      1437 +    for (int i = 0; i < MAX_LINKS; ++i) {                    
+      1438 +        if (m_usedLinkIndices.find(i) ==                     
+           +m_usedLinkIndices.end()) {                                   
+      1439 +            m_usedLinkIndices.insert(i);                     
+      1440 +            return i;                                        
+      1441 +        }                                                    
+      1442 +    }                                                        
+      1443 +                                                             
+      1444 +    return -1;                                               
+      1445 +}                                                            
+      1446 +                                                             
+      1447 +void                                                         
+      1448 +OFSwitch13LearningController::DeallocateLinkIndex(int index) 
+      1449 +{                                                            
+      1450 +    m_usedLinkIndices.erase(index);                          
+      1451 +    m_activeLinks[index] = false;                            
+      1452 +    m_activeLinkCount--;                                     
+      1453 +}                                                            
+      1454 +                                                             
+      1455 +// ============== 端口注册/注销 ==============               
+      1456 +                                                             
+      1457 +int                                                          
+      1458 +OFSwitch13LearningController::RegisterPort(uint16_t port)    
+      1459 +{                                                            
+      1460 +    if (IsPortRegistered(port)) {                            
+      1461 +        return m_portToLinkIndex[port];                      
+      1462 +    }                                                        
+      1463 +                                                             
+      1464 +    int linkIndex = AllocateLinkIndex();                     
+      1465 +    if (linkIndex < 0) {                                     
+      1466 +        return -1;                                           
+      1467 +    }                                                        
+      1468 +                                                             
+      1469 +    // 创建注册信息                                          
+      1470 +    PortRegistrationInfo info;                               
+      1471 +    info.linkIndex = linkIndex;                              
+      1472 +    info.firstSeenTime = Simulator::Now().GetSeconds();      
+      1473 +    info.lastUpdateTime = info.firstSeenTime;                
+      1474 +    info.reportCount = 1;                                    
+      1475 +    info.consecutiveLows = 0;                                
+      1476 +    info.lastThroughput = 0.0;                               
+      1477 +                                                             
+      1478 +    m_portToLinkIndex[port] = linkIndex;                     
+      1479 +    m_portRegistry[port] = info;                             
+      1480 +                                                             
+      1481 +    // 初始化链路统计                                        
+      1482 +    m_linkStats[linkIndex] = LinkStats();                    
+      1483 +                                                             
+      1484 +    std::cout << "[端口注册] 端口 " << port << " -> 链路索引 
+           + " << linkIndex                                              
+      1485 +              << " (活跃: " << m_activeLinkCount << "/" <<   
+           +MAX_LINKS << ")" << std::endl;                               
+      1486 +                                                             
+      1487 +    return linkIndex;                                        
+      1488 +}                                                            
+      1489 +                                                             
+      1490 +void                                                         
+      1491 +OFSwitch13LearningController::UnregisterPort(uint16_t port)  
+      1492 +{                                                            
+      1493 +    auto it = m_portRegistry.find(port);                     
+      1494 +    if (it == m_portRegistry.end()) {                        
+      1495 +        return;                                              
+      1496 +    }                                                        
+      1497 +                                                             
+      1498 +    int linkIndex = it->second.linkIndex;                    
+      1499 +                                                             
+      1500 +    std::cout << "[端口注销] 端口 " << port << " (链路索引 " 
+           + << linkIndex << ")" << std::endl;                           
+      1501 +                                                             
+      1502 +    DeallocateLinkIndex(linkIndex);                          
+      1503 +    m_portToLinkIndex.erase(port);                           
+      1504 +    m_portRegistry.erase(it);                                
+      1505 +}                                                            
+      1506 +                                                             
+      1507 +// ============== 端口流量处理核心逻辑 ==============        
+      1508 +                                                             
+      1509 +void                                                         
+      1510 +OFSwitch13LearningController::ProcessPortReport(uint16_t     
+           +port, double throughput)                                     
+      1511 +{                                                            
+      1512 +    double now = Simulator::Now().GetSeconds();              
+      1513 +                                                             
+      1514 +    // 情况1：端口已注册                                     
+      1515 +    if (IsPortRegistered(port)) {                            
+      1516 +        auto& info = m_portRegistry[port];                   
+      1517 +        info.lastUpdateTime = now;                           
+      1518 +        info.reportCount++;                                  
+      1519 +        info.lastThroughput = throughput;                    
+      1520 +                                                             
+      1521 +        if (throughput < m_currentThroughputThreshold) {     
+      1522 +            info.consecutiveLows++;                          
+      1523 +                                                             
+      1524 +            // 连续N次低于阈值，注销端口                     
+      1525 +            if (info.consecutiveLows >=                      
+           +INACTIVE_COUNT_THRESHOLD) {                                  
+      1526 +                std::cout << "[端口失活] 端口 " << port << " 
+           + 连续 " << info.consecutiveLows                              
+      1527 +                          << " 次低于阈值 (" << throughput   
+           +<< " < " << m_currentThroughputThreshold << ")" <<           
+           +std::endl;                                                   
+      1528 +                UnregisterPort(port);                        
+      1529 +            }                                                
+      1530 +        } else {                                             
+      1531 +            // 达到阈值，重置计数                            
+      1532 +            info.consecutiveLows = 0;                        
+      1533 +        }                                                    
+      1534 +        return;                                              
+      1535 +    }                                                        
+      1536 +                                                             
+      1537 +    // 情况2：端口在观察列表                                 
+      1538 +    if (IsPortObserved(port)) {                              
+      1539 +        auto& info = m_observedPorts[port];                  
+      1540 +        info.lastSeenTime = now;                             
+      1541 +        info.lastThroughput = throughput;                    
+      1542 +                                                             
+      1543 +        if (throughput >= m_currentThroughputThreshold) {    
+      1544 +            info.consecutiveHits++;                          
+      1545 +                                                             
+      1546 +            // 连续N次达到阈值，注册端口                     
+      1547 +            if (info.consecutiveHits >=                      
+           +OBSERVE_COUNT_THRESHOLD) {                                   
+      1548 +                std::cout << "[端口提升] 端口 " << port << " 
+           + 从观察列表提升为注册"                                       
+      1549 +                          << " (连续 " <<                    
+           +info.consecutiveHits << " 次达到阈值)" << std::endl;         
+      1550 +                m_observedPorts.erase(port);                 
+      1551 +                RegisterPort(port);                          
+      1552 +            }                                                
+      1553 +        } else {                                             
+      1554 +            // 未达到阈值，重置计数                          
+      1555 +            info.consecutiveHits = 0;                        
+      1556 +        }                                                    
+      1557 +        return;                                              
+      1558 +    }                                                        
+      1559 +                                                             
+      1560 +    // 情况3：新端口                                         
+      1561 +    if (throughput >= m_currentThroughputThreshold) {        
+      1562 +        // 达到阈值，加入观察列表                            
+      1563 +        PortObservationInfo info;                            
+      1564 +        info.firstSeenTime = now;                            
+      1565 +        info.lastSeenTime = now;                             
+      1566 +        info.consecutiveHits = 1;                            
+      1567 +        info.lastThroughput = throughput;                    
+      1568 +                                                             
+      1569 +        m_observedPorts[port] = info;                        
+      1570 +                                                             
+      1571 +        std::cout << "[端口观察] 新端口 " << port << "       
+           +加入观察列表"                                                
+      1572 +                  << " (吞吐: " << throughput << " Kbps >=   
+           +阈值: " << m_currentThroughputThreshold << ")" << std::endl; 
+      1573 +    } else {                                                 
+      1574 +        NS_LOG_DEBUG("忽略低吞吐端口 " << port << " (吞吐: " 
+           + << throughput << " < 阈值: " <<                             
+           +m_currentThroughputThreshold << ")");                        
+      1575 +    }                                                        
+      1576 +}                                                            
+      1577 +                                                             
+      1578 +// ==============                                            
+           +失活端口检查（可选，定期调用）=============                  
+      1579 +                                                             
+      1580 +void                                                         
+      1581 +OFSwitch13LearningController::CheckInactivePorts()           
+      1582 +{                                                            
+      1583 +    std::vector<uint16_t> toRemove;                          
+      1584 +                                                             
+      1585 +    for (auto& entry : m_observedPorts) {                    
+      1586 +        double now = Simulator::Now().GetSeconds();          
+      1587 +        // 观察列表超过60秒未更新，移除                      
+      1588 +        if (now - entry.second.lastSeenTime > 60.0) {        
+      1589 +            toRemove.push_back(entry.first);                 
+      1590 +        }                                                    
+      1591 +    }                                                        
+      1592 +                                                             
+      1593 +    for (uint16_t port : toRemove) {                         
+      1594 +        std::cout << "[观察超时] 端口 " << port << "         
+           +从观察列表移除" << std::endl;                                
+      1595 +        m_observedPorts.erase(port);                         
+      1596 +    }                                                        
+      1597 +}                                                            
+      1598 +                                                             
+      1599  } // namespace ns3                                           
+      1600  #endif                                                       
+
+● Let me check if cmath is already included in the .cc file (for fabs function).
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Let me check if <set> is included in the .cc file.
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Let me add the <set> include to the .cc file.
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.cc)
+  ⎿  Added 1 line
+      26  #include <algorithm>                                           
+      27  #include <cstdlib>                                             
+      28  #include <deque>  // For experience replay buffer              
+      29 +#include <set>    // For std::set in dynamic port management   
+      30  #include "ns3/mobility-model.h"                                
+      31  #include <iomanip>                                             
+      32                                                                 
+
+● Now let me verify the implementation by building the project.
+
+● Bash(cd /home/cs18/tarballs/ns-allinone-3.34/ns-3.34 && ./waf configure 2>&1 |
+       tail -30)
+  ⎿  Build profile                 : debug
+     Build directory               :
+     BRITE Integration             : not enabled (BRITE not enabled (see op
+     … +24 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● Bash(./waf build 2>&1 | tail -50)
+  ⎿  Waf: Entering directory `/home/cs18/tarballs/ns-allinone-3.34/ns-3.34/
+     build'
+     [1015/2359] Compiling install-ns3-header: ns3/ofswitch13-learning-cont
+     … +17 lines (ctrl+o to expand)
+  ⎿  (timeout 5m)
+
+● I need to add definitions for the static constexpr members. Let me add them to
+   the .cc file.
+
+● Read 1 file (ctrl+o to expand)
+
+● Update(contrib/ofswitch13/model/ofswitch13-learning-controller.cc)
+  ⎿  Added 7 lines
+      38                                                                 
+      39  NS_OBJECT_ENSURE_REGISTERED(OFSwitch13LearningController);     
+      40                                                                 
+      41 +// 静态常量成员定义（C++11/14需要，C++17可省略）               
+      42 +constexpr double                                               
+         +OFSwitch13LearningController::MIN_THROUGHPUT_THRESHOLD;        
+      43 +constexpr double                                               
+         +OFSwitch13LearningController::THRESHOLD_COEFFICIENT;           
+      44 +constexpr uint32_t                                             
+         +OFSwitch13LearningController::OBSERVE_COUNT_THRESHOLD;         
+      45 +constexpr uint32_t                                             
+         +OFSwitch13LearningController::INACTIVE_COUNT_THRESHOLD;        
+      46 +constexpr int OFSwitch13LearningController::MAX_LINKS;         
+      47 +                                                               
+      48  // const float                                                 
+          OFSwitch13LearningController::DISTANCE_THRESHOLD = 50.0f;      
+      49  OFSwitch13LearningController::OFSwitch13LearningController()   
+      50                   : m_networkQLearning(0.4, 0.6, 0.2),          
+          m_activeLinkCount(0),                                          
+
+● Bash(./waf build 2>&1 | tail -30)
+  ⎿  [2310/2359] Linking build/scratch/test-smartaodv
+     Waf: Leaving directory `/home/cs18/tarballs/ns-allinone-3.34/ns-3.34/b
+     uild'
+     … +22 lines (ctrl+o to expand)
+  ⎿  (timeout 5m)
+
+● The build was successful. Let me run a quick test to verify the implementation
+   works.
+
+● Bash(./waf --run "train4" 2>&1 | head -100)
+  ⎿  Waf: Entering directory `/home/cs18/tarballs/ns-allinone-3.34/ns-3.34/
+     build'
+     Waf: Leaving directory `/home/cs18/tarballs/ns-allinone-3.34/ns-3.34/b
+     … +47 lines (ctrl+o to expand)
+
+● The dynamic port discovery mechanism is working. Let me run the simulation a
+  bit longer to see the port observation and registration in action.
+
+● Bash(timeout 30 ./waf --run "train4" 2>&1 | grep -E
+      "\[动态|\[端口|\[链路发现\]" | head -50)
+  ⎿  Error: Exit code 143
+     Terminated
+
+     Terminated
+
+● Bash(./waf --run "train4" 2>&1 | grep -E "\[动态|\[端口|\[链路发现\]" | head
+      -50 &
+      sleep 45…)
+  ⎿  Error: Exit code 1
+
+● Bash(timeout 60 ./waf --run "train4" 2>&1 | tee /tmp/train4_output.log | grep
+      -E "\[动态|\[端口|\[链路发现\]|\[阈值\]" | head -100 &
+      PID=$!…)
+  ⎿  /bin/bash: PID=: command not found
+
+● Bash(timeout 50 ./waf --run "train4" 2>&1 | grep -E
+      "\[动态|\[端口|\[链路发现\]" | head -50)
+  ⎿  Error: Exit code 143
+     Terminated
+
+     Terminated
+
+● Let me check if the simulation is generating flow status reports.
+
+● Bash(timeout 90 ./waf --run "train4" 2>&1 > /tmp/train4_full.log; grep -E
+      "吞吐|throughput|端口|port|流量|flow" /tmp/train4_full.log | head -30)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ 这个动态吞吐量阈值过滤，怎么实现动态调节的 
+
+● 根据我刚才实现的代码，动态吞吐量阈值过滤的工作原理如下：
+
+  动态阈值调节机制
+
+  1. 阈值计算公式
+
+  动态阈值 = max(最小阈值, 当前活跃端口平均吞吐量 × 系数)
+
+  参数配置：
+  - MIN_THROUGHPUT_THRESHOLD = 50.0 Kbps（最小阈值保底值）
+  - THRESHOLD_COEFFICIENT = 0.3（取平均值的30%）
+
+  2. 核心代码逻辑
+
+  double OFSwitch13LearningController::CalculateDynamicThreshold()
+  {
+      if (m_portRegistry.empty()) {
+          return MIN_THROUGHPUT_THRESHOLD;  // 无活跃端口时使用最小阈值
+      }
+
+      // 计算所有已注册端口的平均吞吐量
+      double totalThroughput = 0.0;
+      for (const auto& entry : m_portRegistry) {
+          totalThroughput += entry.second.lastThroughput;
+      }
+      double avgThroughput = totalThroughput / m_portRegistry.size();
+
+      // 动态阈值 = max(最小阈值, 平均值 × 系数)
+      double threshold = std::max(MIN_THROUGHPUT_THRESHOLD,
+                                  avgThroughput * THRESHOLD_COEFFICIENT);
+      return threshold;
+  }
+
+  3. 更新策略（防抖动）
+
+  void OFSwitch13LearningController::UpdateDynamicThreshold()
+  {
+      double newThreshold = CalculateDynamicThreshold();
+
+      // 只有变化超过10%时才更新，避免频繁抖动
+      if (fabs(newThreshold - m_currentThroughputThreshold) /
+  m_currentThroughputThreshold > 0.1) {
+          m_currentThroughputThreshold = newThreshold;
+          std::cout << "[动态阈值] 更新阈值: " << m_currentThroughputThreshold
+  << " Kbps" << std::endl;
+      }
+  }
+
+  4. 调节时机
+
+  每次收到端口流量上报（HandleAdhocExtFlowStatusReport）时都会调用
+  UpdateDynamicThreshold()，即：
+
+  端口上报流量 → 更新动态阈值 → 处理端口状态
+
+  5. 动态调节示例
+
+  ┌────────────────┬────────────────────┬────────────────┬──────────────────┐
+  │      场景      │ 活跃端口平均吞吐量 │    计算结果    │     最终阈值     │
+  ├────────────────┼────────────────────┼────────────────┼──────────────────┤
+  │ 初始（无端口） │ -                  │ -              │ 50               │
+  │                │                    │                │ Kbps（最小值）   │
+  ├────────────────┼────────────────────┼────────────────┼──────────────────┤
+  │ 低流量场景     │ 100 Kbps           │ 100 × 0.3 = 30 │ 50 Kbps（取max） │
+  ├────────────────┼────────────────────┼────────────────┼──────────────────┤
+  │ 中等流量       │ 500 Kbps           │ 500 × 0.3 =    │ 150 Kbps         │
+  │                │                    │ 150            │                  │
+  ├────────────────┼────────────────────┼────────────────┼──────────────────┤
+  │ 高流量场景     │ 2000 Kbps          │ 2000 × 0.3 =   │ 600 Kbps         │
+  │                │                    │ 600            │                  │
+  └────────────────┴────────────────────┴────────────────┴──────────────────┘
+
+  6. 设计优势
+
+  1.
+  自适应：阈值随网络流量自动调整，流量高时阈值提高，流量低时阈值降低（但不低于50
+   Kbps）
+  2. 防抖动：10%变化门槛避免频繁切换
+  3. 保底机制：最小阈值确保低流量时不会误过滤所有端口
+
+  需要我调整参数或修改阈值计算策略吗？

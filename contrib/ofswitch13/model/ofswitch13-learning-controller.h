@@ -4,6 +4,8 @@
 
 #include "ofswitch13-controller.h"
 #include "ns3/ipv4-address.h"
+#include <set>
+#include <map>
 
 
 namespace ns3
@@ -11,13 +13,13 @@ namespace ns3
 
     struct LinkStats {
     uint64_t mac_address;
-    
+
     // 当前值
     double throughput;    // 对应报错中的 s.throughput
     double lossRate;      // 对应报错中的 s.lossRate
     double delay;         // 对应报错中的 s.delay
     double jitter;
-    
+
     // 历史值（用于计算奖励的增量 Improvement）
     double prevThroughput; // 对应报错中的 s.prevThroughput
     double prevLossRate;   // 对应报错中的 s.prevLossRate
@@ -26,11 +28,34 @@ namespace ns3
     // 你之前定义的其他字段可以保留
     uint32_t rxPackets;
     uint32_t txPackets;
-    double   throughputKbps; 
-    double   lastRssi;       
-};
+    double   throughputKbps;
+    double   lastRssi;
+    };
 
+    // 端口观察信息（用于临时观察低于阈值的端口）
+    struct PortObservationInfo {
+        double firstSeenTime;     // 首次发现时间
+        double lastSeenTime;      // 最后发现时间
+        uint32_t consecutiveHits; // 连续达到阈值次数
+        double lastThroughput;    // 最后一次吞吐量
 
+        PortObservationInfo()
+            : firstSeenTime(0), lastSeenTime(0), consecutiveHits(0), lastThroughput(0) {}
+    };
+
+    // 端口注册信息（已注册的活跃端口）
+    struct PortRegistrationInfo {
+        int linkIndex;            // 分配的链路索引
+        double firstSeenTime;     // 首次注册时间
+        double lastUpdateTime;    // 最后更新时间
+        uint64_t reportCount;     // 累计上报次数
+        uint32_t consecutiveLows; // 连续低于阈值次数
+        double lastThroughput;    // 最后一次吞吐量
+
+        PortRegistrationInfo()
+            : linkIndex(-1), firstSeenTime(0), lastUpdateTime(0),
+              reportCount(0), consecutiveLows(0), lastThroughput(0) {}
+    };
 
     // 主机信息结构体：IP、MAC、端口（域内主机）
     struct HostInfo {
@@ -251,10 +276,42 @@ namespace ns3
         std::map<uint16_t, int> m_portToLinkIndex;  // 端口到链路索引的映射
         std::vector<bool> m_activeLinks;            // 有效链路标志
         int m_activeLinkCount;                      // 实际有效链路数量
-        static constexpr int MAX_LINKS = 10;        // 最大链路数
+        static constexpr int MAX_LINKS = 64;        // 最大链路数（从10扩展到64）
 
         // 新增函数声明
         std::vector<double> CalculateThroughputWeights();  // 动态计算吞吐量权重
+
+        // ============== 动态端口捕获相关 ==============
+        // 动态阈值参数
+        static constexpr double MIN_THROUGHPUT_THRESHOLD = 50.0;   // Kbps，最小阈值
+        static constexpr double THRESHOLD_COEFFICIENT = 0.3;        // 平均值系数
+        static constexpr uint32_t OBSERVE_COUNT_THRESHOLD = 3;      // 观察阈值：连续N次达到才注册
+        static constexpr uint32_t INACTIVE_COUNT_THRESHOLD = 5;     // 失活阈值：连续N次低于才删除
+
+        // 动态阈值管理
+        double m_currentThroughputThreshold;  // 当前动态阈值
+
+        // 端口状态管理
+        std::map<uint16_t, PortObservationInfo> m_observedPorts;  // 临时观察端口
+        std::map<uint16_t, PortRegistrationInfo> m_portRegistry;   // 已注册端口
+        std::set<int> m_usedLinkIndices;                           // 已使用的链路索引集合
+
+        // 动态阈值管理方法
+        double CalculateDynamicThreshold();                    // 计算动态阈值
+        void UpdateDynamicThreshold();                         // 更新动态阈值
+
+        // 端口状态管理方法
+        int RegisterPort(uint16_t port);                       // 注册新端口
+        void UnregisterPort(uint16_t port);                    // 删除端口注册
+        bool IsPortRegistered(uint16_t port) const;            // 检查端口是否已注册
+        bool IsPortObserved(uint16_t port) const;              // 检查端口是否在观察列表
+
+        int AllocateLinkIndex();                               // 分配新的链路索引
+        void DeallocateLinkIndex(int index);                   // 释放链路索引
+
+        // 端口处理方法
+        void ProcessPortReport(uint16_t port, double throughput);  // 处理端口流量上报
+        void CheckInactivePorts();                             // 检查并清理失活端口
     };
 
 } // namespace ns3
