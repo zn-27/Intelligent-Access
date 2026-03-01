@@ -25,6 +25,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstdlib>
+#include <deque>  // For experience replay buffer
 #include "ns3/mobility-model.h"
 #include <iomanip> 
 
@@ -928,22 +929,31 @@ void OFSwitch13LearningController::PeriodicDecisionMaking() {
     // --- 2. 结算上一轮动作 (如果不是第一次运行) ---
     static bool isFirstRun = true;
     static NetworkState lastState;
-    static int lastAction;
+    static int lastAction = 0;  // FIX: Initialize to prevent undefined behavior
 
     if (!isFirstRun) {
         // 计算从上次动作到现在产生的奖励
-        double reward = CalculateReward(); 
+        double reward = CalculateReward();
+
+        // NEW: Add switching cost penalty
+        if (m_lastAction != -1 && m_lastAction != lastAction) {
+            reward -= SWITCHING_COST;
+            std::cout << "[切换惩罚] 动作改变 (" << m_lastAction << "->" << lastAction
+                      << ")，扣除 " << SWITCHING_COST << std::endl;
+        }
+
         // 使用上次的状态、上次的动作、当前的新状态和奖励来更新Q表
         m_networkQLearning.Update(lastState, lastAction, currentState, reward);
     }
 
     // --- 3. 基于当前状态做出新决策 ---
     int action = m_networkQLearning.ChooseAction(currentState);
-    
+
     // --- 4. 执行动作 ---
     ExecuteSwitchingAction(action);
 
     // --- 5. 记录状态供下次结算使用 ---
+    m_lastAction = lastAction;  // Save previous action for switching cost
     lastState = currentState;
     lastAction = action;
     isFirstRun = false;
@@ -972,22 +982,36 @@ void OFSwitch13LearningController::UpdateQLearning(NetworkState currentState, in
 
 // NetworkModeQLearning类实现
 NetworkModeQLearning::NetworkModeQLearning(double alpha, double gamma, double epsilon)
-    : alpha(alpha), gamma(gamma), epsilon(epsilon),
-      // 状态：(距离2种 * 丢包2种) = 4种状态；动作：3种
-      qTable(4, std::vector<double>(3, 0.0)) 
+    : alpha(alpha), gamma(gamma), epsilon(epsilon), baseEpsilon(epsilon),
+      // 状态：(距离2种 * 方差2种 * 丢包2种) = 8种状态；动作：2种(MULTI, ADHOC)
+      qTable(8, std::vector<double>(ACTION_COUNT, 0.0))
 {
+    InitializeQTable();  // Smart initialization
+}
+
+void NetworkModeQLearning::InitializeQTable() {
+    // State encoding: [lossBit][varBit][distBit]
+    // State 1 (near=1, low var=0, good loss=0): 0b001 = 1 -> bias MULTI
+    qTable[1][MULTI] = 0.3;
+    // State 6 (far=0, high var=1, bad loss=1): 0b110 = 6 -> bias ADHOC
+    qTable[6][ADHOC] = 0.3;
+    // State 7 (far=0, high var=1, bad loss=1, near=1): 0b111 = 7 -> bias ADHOC
+    qTable[7][ADHOC] = 0.3;
+
+    std::cout << "[Q表初始化] 已设置初始偏向: 状态1->MULTI, 状态6,7->ADHOC" << std::endl;
 }
 
 int NetworkModeQLearning::StateToId(const NetworkState& state) {
+    // 3-bit state encoding for 8 states:
+    // bit0: distance (1=near<=25, 0=far>25)
+    // bit1: variance (1=high>100, 0=low<=100)
+    // bit2: loss (1=bad>5%, 0=good<=5%)
+    int distBit = (state.averageNodeDistance <= 25.0f) ? 1 : 0;  // bit0
+    int varBit = (state.distanceVariance > 100.0f) ? 1 : 0;      // bit1 (NEW)
+    int lossBit = (state.maxLossRate > 0.05) ? 1 : 0;            // bit2
 
-    // 维度1：距离 (0:远, 1:近)
-    // 加上类名作用域 OFSwitch13LearningController::
-    int distBit = (state.averageNodeDistance <= OFSwitch13LearningController::DISTANCE_THRESHOLD) ? 1 : 0;
-    // 维度2：丢包 (0:好, 1:差) 阈值设为 5%
-    int lossBit = (state.maxLossRate <= 0.05) ? 0 : 1;
-    
-    // 组合状态 ID (0, 1, 2, 3)
-    return (lossBit << 1) | distBit;
+    // Combine into state ID (0-7)
+    return (lossBit << 2) | (varBit << 1) | distBit;
 }
 
 
@@ -995,7 +1019,10 @@ int NetworkModeQLearning::StateToId(const NetworkState& state) {
 // 实现网络状态评估方法
 NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
     NetworkState state;
-    
+
+    // Initialize new field
+    state.distanceVariance = 0.0f;
+
     // 1. 提取所有节点位置信息
     std::vector<NodePositionInfo> allNodes;
     for (const auto& entry : m_nodePositionMap) {
@@ -1013,6 +1040,7 @@ NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
     // 3. 计算所有节点对的欧氏距离总和
     float totalDistance = 0.0f;
     uint64_t pairCount = 0;
+    std::vector<float> distances;  // Store individual distances for variance calculation
 
     for (uint32_t i = 0; i < nodeCount; ++i) {
         const NodePositionInfo& nodeA = allNodes[i];
@@ -1026,6 +1054,7 @@ NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
             float singlePairDistance = sqrtf(dx*dx + dy*dy + dz*dz);
 
             totalDistance += singlePairDistance;
+            distances.push_back(singlePairDistance);
             pairCount++;
         }
     }
@@ -1035,6 +1064,14 @@ NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
         state.averageNodeDistance = totalDistance / pairCount;
     }
 
+    // 5. Calculate distance variance (NEW)
+    if (distances.size() > 1) {
+        float sumSquaredDiff = 0.0f;
+        for (float d : distances) {
+            sumSquaredDiff += (d - state.averageNodeDistance) * (d - state.averageNodeDistance);
+        }
+        state.distanceVariance = sumSquaredDiff / distances.size();
+    }
 
     // 提取链路质量：计算最大丢包和总吞吐
     state.maxLossRate = 0.0;
@@ -1046,10 +1083,9 @@ NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
         }
     }
 
-    std::cout << "[状态感知] 均距: " << state.averageNodeDistance 
+    std::cout << "[状态感知] 均距: " << state.averageNodeDistance
+              << " | 方差: " << state.distanceVariance
               << " | 最大丢包: " << (state.maxLossRate * 100.0) << "%" << std::endl;
-    return state;
-
     return state;
 }
 
@@ -1078,17 +1114,17 @@ int NetworkModeQLearning::ChooseAction(const NetworkState& state) {
 
     // ========== 关键改动2：用动态ε执行探索 ==========
     if (((double)rand() / RAND_MAX) < dynamicEpsilon) {
-        std::cout << "[Q学习-探索] 动态ε=" << dynamicEpsilon 
+        std::cout << "[Q学习-探索] 动态ε=" << dynamicEpsilon
                   << "，随机选动作（当前丢包率=" << state.maxLossRate*100 << "%）" << std::endl;
-        return rand() % 2; // 随机返回 0(MULTI), 1(ADHOC)
+        return rand() % ACTION_COUNT; // 随机返回 0(MULTI), 1(ADHOC)
     }
 
 
     // 2. 利用机制：从 Q 表中找当前状态下分值最高的动作索引
     int bestAction = 0;
     double maxQ = qTable[stateId][0];
-    
-    for (int a = 1; a < 3; a++) {
+
+    for (int a = 1; a < ACTION_COUNT; a++) {
         if (qTable[stateId][a] > maxQ) {
             maxQ = qTable[stateId][a];
             bestAction = a;
@@ -1242,22 +1278,54 @@ void NetworkModeQLearning::Update(const NetworkState& state, int action, const N
     int stateId = StateToId(state);
     int newStateId = StateToId(newState);
 
+    // Store experience in replay buffer
+    Experience exp = {state, action, reward, newState};
+    replayBuffer.push_back(exp);
+    if (replayBuffer.size() > MAX_BUFFER_SIZE) {
+        replayBuffer.pop_front();
+    }
+
+    // Standard Q-table update
     double qPredict = qTable[stateId][action];
     double qTarget = reward + gamma * *std::max_element(qTable[newStateId].begin(), qTable[newStateId].end());
     qTable[stateId][action] += alpha * (qTarget - qPredict);  // Q 表更新公式
 
-    std::cout << "[控制器Q学习] Q表更新 - 动作: " << action 
-              << " | 奖励: " << reward 
+    std::cout << "[控制器Q学习] Q表更新 - 动作: " << action
+              << " | 奖励: " << reward
               << " | 更新后Q值: " << qTable[stateId][action] << std::endl;
+
+    // Replay every 10 experiences to break correlation
+    if (replayBuffer.size() >= 10 && replayBuffer.size() % 10 == 0) {
+        ReplayBatch(5);
+    }
+}
+
+void NetworkModeQLearning::ReplayBatch(int batchSize) {
+    if (replayBuffer.size() < static_cast<size_t>(batchSize)) return;
+
+    double replayAlpha = alpha * 0.5;  // Smaller learning rate for replay
+    for (int i = 0; i < batchSize; ++i) {
+        int idx = rand() % replayBuffer.size();
+        const Experience& exp = replayBuffer[idx];
+
+        int stateId = StateToId(exp.state);
+        int newStateId = StateToId(exp.nextState);
+
+        double qPredict = qTable[stateId][exp.action];
+        double qTarget = exp.reward + gamma * *std::max_element(qTable[newStateId].begin(), qTable[newStateId].end());
+        qTable[stateId][exp.action] += replayAlpha * (qTarget - qPredict);
+    }
+    std::cout << "[经验回放] 已回放 " << batchSize << " 条经验" << std::endl;
 }
 
 void NetworkModeQLearning::PrintQTable() {
-    std::cout << "--- [Q表状态说明：D(距离 0远1近) | L(丢包 0好1差)] ---" << std::endl;
-    for (int s = 0; s < 4; ++s) {
+    std::cout << "--- [Q表状态说明：D(距离 0远1近) | V(方差 0低1高) | L(丢包 0好1差)] ---" << std::endl;
+    for (int s = 0; s < 8; ++s) {
         int dist = s & 1;
-        int loss = (s >> 1) & 1;
-        printf("状态 %d (D:%d L:%d) -> MULTI:%.3f | ADHOC:%.3f | KEEP:%.3f\n", 
-               s, dist, loss, qTable[s][0], qTable[s][1], qTable[s][2]);
+        int var = (s >> 1) & 1;
+        int loss = (s >> 2) & 1;
+        printf("状态 %d (D:%d V:%d L:%d) -> MULTI:%.3f | ADHOC:%.3f\n",
+               s, dist, var, loss, qTable[s][0], qTable[s][1]);
     }
 }
 

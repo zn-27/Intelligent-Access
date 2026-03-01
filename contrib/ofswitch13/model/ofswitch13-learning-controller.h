@@ -62,6 +62,7 @@ namespace ns3
     // 网络状态结构体（仅保留平均距离）
     struct NetworkState {
         float averageNodeDistance;  // 节点平均距离（仅用这个判断）
+        float distanceVariance;     // NEW: 节点分散度（方差）
         double totalThroughput;
         double maxLossRate;
     };
@@ -72,27 +73,47 @@ namespace ns3
     // Q学习网络模式决策类
     class NetworkModeQLearning {
     public:
+        // Action enumeration
+        enum Action { MULTI = 0, ADHOC = 1 };
+        static constexpr int ACTION_COUNT = 2;
+
         // 构造函数
         NetworkModeQLearning(double alpha, double gamma, double epsilon);
-        
+
         // 选择动作（直接使用OFSwitch13LearningController的静态阈值）
         int ChooseAction(const NetworkState& state);
-        
+
         // 更新Q表（直接使用OFSwitch13LearningController的静态阈值）
-        void Update(const NetworkState& state, int action, const NetworkState& newState, 
+        void Update(const NetworkState& state, int action, const NetworkState& newState,
                    double reward);
-        
+
         // 打印Q表
         void PrintQTable();
-    
+
+        // Initialize Q-table with smart defaults
+        void InitializeQTable();
+
     private:
+        // Experience structure for replay buffer
+        struct Experience {
+            NetworkState state;
+            int action;
+            double reward;
+            NetworkState nextState;
+        };
+
         double alpha;    // 学习率
         double gamma;    // 折扣因子
         double epsilon;  // 探索率
         double baseEpsilon; // 存储基础探索率，用于动态计算ε
         std::vector<std::vector<double>> qTable; // Q表：state x action
+        std::deque<Experience> replayBuffer;     // Experience replay buffer
+        static constexpr size_t MAX_BUFFER_SIZE = 1000;
+
         // 将状态转换为ID（0=远距离，1=近距离）
         int StateToId(const NetworkState& state);
+        // Replay batch of experiences
+        void ReplayBatch(int batchSize);
     };
 
 
@@ -215,6 +236,8 @@ namespace ns3
         std::map<Ipv4Address, NodePositionInfo> m_nodePositionMap; // IP->位置映射
         std::vector<NodePositionInfo> m_nodePositionInfo; // 位置信息列表
         NetworkModeQLearning m_networkQLearning;  // Q学习实例
+        int m_lastAction = -1;  // Track last action for switching cost
+        static constexpr double SWITCHING_COST = 0.1;  // Penalty for mode changes
 
         // 新增：封装Q表更新逻辑的成员函数
         void UpdateQLearning(NetworkState currentState, int action);
