@@ -39,11 +39,19 @@ NS_OBJECT_ENSURE_REGISTERED(OFSwitch13LearningController);
 
 // const float OFSwitch13LearningController::DISTANCE_THRESHOLD = 50.0f;
 OFSwitch13LearningController::OFSwitch13LearningController()
-                 : m_networkQLearning(0.4, 0.6, 0.2) // alpha, gamma, epsilon
+                 : m_networkQLearning(0.4, 0.6, 0.2), m_activeLinkCount(0) // alpha, gamma, epsilon
 {
-    // 假设你最多有 10 个链路，初始化 10 个 LinkStats 结构体
-    m_linkStats.resize(10); 
-    m_currentMode=0;
+    // 动态初始化链路统计数组
+    m_linkStats.resize(MAX_LINKS);
+    m_activeLinks.resize(MAX_LINKS, false);  // 初始化为false
+
+    // 配置端口到链路索引的映射（可扩展）
+    m_portToLinkIndex[9] = 0;
+    m_portToLinkIndex[10] = 1;
+    m_portToLinkIndex[11] = 2;
+    m_portToLinkIndex[12] = 3;
+
+    m_currentMode = 0;
      // ==================== 初始化交换机互联端口映射（仅硬编码端口连接关系）====================
     // 交换机连接拓扑：
     // sw1 (DPID:1) <--端口3--> sw2 (DPID:2)
@@ -868,8 +876,8 @@ OFSwitch13LearningController::HandleAdhocExtNodeStatusReport(
  */
 ofl_err
 OFSwitch13LearningController::HandleAdhocExtFlowStatusReport(
-    struct adhocl_ext_flow_status_report *msg, 
-    Ptr<const RemoteSwitch> swtch, 
+    struct adhocl_ext_flow_status_report *msg,
+    Ptr<const RemoteSwitch> swtch,
     uint32_t xid)
 {
     NS_LOG_FUNCTION(this << swtch << xid);
@@ -881,34 +889,34 @@ OFSwitch13LearningController::HandleAdhocExtFlowStatusReport(
     }
 
     // 2. 提取数据
-    // 直接访问解包后的主机字节序成员
     uint16_t port     = msg->port;
     uint32_t thr      = msg->throughput; // Kbps
     uint32_t delay    = msg->delay;      // ms
     uint32_t jitter   = msg->jitter;     // ms
-    // 将 10000 倍放大的整数还原为 0.0 ~ 1.0 的浮点数
     double actualLoss = static_cast<double>(msg->loss_rate) / 10000.0;
 
-    // 3. 业务逻辑：根据端口确定链路索引 (Link 1: Port 9, Link 2: Port 10)
-    int linkIndex = -1;
-    if (port == 9)       linkIndex = 0; 
-    else if (port == 10) linkIndex = 1; 
-    else if (port == 11) linkIndex = 2;  
-    else if (port == 12) linkIndex = 3;  
+    // 3. 使用映射表查找链路索引（替代硬编码 if-else）
+    auto it = m_portToLinkIndex.find(port);
+    if (it != m_portToLinkIndex.end()) {
+        int linkIndex = it->second;
 
-    if (linkIndex != -1) {
-        // 更新链路统计数组 m_linkStats，供 CalculateReward() 使用
-        m_linkStats[linkIndex].throughput = static_cast<double>(thr);
-        m_linkStats[linkIndex].delay      = static_cast<double>(delay);
-        m_linkStats[linkIndex].lossRate   = actualLoss;
-        m_linkStats[linkIndex].jitter  = static_cast<double>(jitter);
-        
-        // std::cout << "[Controller] 链路统计更新 [Link " << (linkIndex + 1) << "]: "
-        //           << "Thr=" << thr << " Kbps, "
-        //           << "Delay=" << delay << " ms, "
-        //           << "Loss=" << (actualLoss * 100.0) << "%" << std::endl;
+        if (linkIndex >= 0 && linkIndex < MAX_LINKS) {
+            m_linkStats[linkIndex].throughput = static_cast<double>(thr);
+            m_linkStats[linkIndex].delay      = static_cast<double>(delay);
+            m_linkStats[linkIndex].lossRate   = actualLoss;
+            m_linkStats[linkIndex].jitter     = static_cast<double>(jitter);
+
+            // 标记链路为活跃状态（如果是首次）
+            if (!m_activeLinks[linkIndex]) {
+                m_activeLinks[linkIndex] = true;
+                m_activeLinkCount++;
+                std::cout << "[链路发现] 新链路激活: 端口 " << port
+                          << " -> 链路索引 " << linkIndex
+                          << " (当前活跃链路数: " << m_activeLinkCount << ")" << std::endl;
+            }
+        }
     } else {
-        NS_LOG_WARN("收到未定义的端口流量上报: " << port);
+        NS_LOG_WARN("收到未映射的端口流量上报: " << port);
     }
 
     // 4. 释放消息内存 (必须手动释放，否则会导致内存泄漏)
@@ -1073,19 +1081,24 @@ NetworkState OFSwitch13LearningController::EvaluateNetworkState() {
         state.distanceVariance = sumSquaredDiff / distances.size();
     }
 
-    // 提取链路质量：计算最大丢包和总吞吐
+    // 提取链路质量：动态遍历活跃链路
     state.maxLossRate = 0.0;
     state.totalThroughput = 0.0;
-    for (int i = 0; i < 4 ;++i) { // 监控 Link 1,-4
-        state.totalThroughput += m_linkStats[i].throughput;
-        if (m_linkStats[i].lossRate > state.maxLossRate) {
-            state.maxLossRate = m_linkStats[i].lossRate;
+
+    for (int i = 0; i < MAX_LINKS; ++i) {
+        if (m_activeLinks[i]) {  // 只处理活跃链路
+            state.totalThroughput += m_linkStats[i].throughput;
+            if (m_linkStats[i].lossRate > state.maxLossRate) {
+                state.maxLossRate = m_linkStats[i].lossRate;
+            }
         }
     }
 
-    std::cout << "[状态感知] 均距: " << state.averageNodeDistance
+    std::cout << "[状态感知] 活跃链路数: " << m_activeLinkCount
+              << " | 均距: " << state.averageNodeDistance
               << " | 方差: " << state.distanceVariance
-              << " | 最大丢包: " << (state.maxLossRate * 100.0) << "%" << std::endl;
+              << " | 最大丢包: " << (state.maxLossRate * 100.0) << "%"
+              << " | 总吞吐: " << state.totalThroughput << " Kbps" << std::endl;
     return state;
 }
 
@@ -1211,65 +1224,96 @@ void OFSwitch13LearningController::ExecuteSwitchingAction(int action) {
 //     return (totalReward > 1.0) ? 1.0 : (totalReward < -1.0 ? -1.0 : totalReward);
 // }
 
+std::vector<double>
+OFSwitch13LearningController::CalculateThroughputWeights()
+{
+    std::vector<double> weights(MAX_LINKS, 0.0);
+
+    // 1. 计算所有活跃链路的总吞吐量
+    double totalThroughput = 0.0;
+    for (int i = 0; i < MAX_LINKS; ++i) {
+        if (m_activeLinks[i]) {
+            totalThroughput += m_linkStats[i].throughput;
+        }
+    }
+
+    // 2. 边界情况：总吞吐量为0 -> 使用均匀权重
+    if (totalThroughput <= 0.0 || m_activeLinkCount == 0) {
+        double uniformWeight = (m_activeLinkCount > 0) ? 1.0 / m_activeLinkCount : 0.0;
+        for (int i = 0; i < MAX_LINKS; ++i) {
+            if (m_activeLinks[i]) {
+                weights[i] = uniformWeight;
+            }
+        }
+        return weights;
+    }
+
+    // 3. 正常情况：根据吞吐量比例计算权重
+    for (int i = 0; i < MAX_LINKS; ++i) {
+        if (m_activeLinks[i]) {
+            weights[i] = m_linkStats[i].throughput / totalThroughput;
+        }
+    }
+
+    return weights;
+}
+
 double OFSwitch13LearningController::CalculateReward() {
     double totalReward = 0.0;
-    // 1. 链路权重均衡
-    const double linkWeights[4] = {0.25, 0.25, 0.25, 0.25}; 
     double maxLoss = 0.0;
+    const double LOSS_THRESHOLD = 0.25;
 
-    // 丢包分档阈值：小丢包(<10%)用改善量，大丢包(≥10%)用绝对惩罚
-    const double LOSS_THRESHOLD = 0.25; 
+    // 1. 动态计算吞吐量加权权重
+    std::vector<double> linkWeights = CalculateThroughputWeights();
 
-    for (int i = 0; i < 4; ++i) { // 遍历 4 条链路
+    // 2. 遍历活跃链路计算奖励
+    for (int i = 0; i < MAX_LINKS; ++i) {
+        if (!m_activeLinks[i]) continue;  // 跳过非活跃链路
+
         LinkStats& s = m_linkStats[i];
 
-        // --- A. 吞吐量/延迟：固定用改善量（按你的权重要求）---
-        // 吞吐量改善量（权重0.2）：吞吐提升→tImp正→奖励增加
-        double tImp = (s.prevThroughput > 0) ? (s.throughput - s.prevThroughput) / s.prevThroughput : 0.0;
-        // 延迟改善量（权重0.3）：延迟降低→dImp正→奖励增加
-        double dImp = (s.prevDelay > 0) ? (s.prevDelay - s.delay) / s.prevDelay : 0.0;
+        // A. 吞吐量/延迟改善量
+        double tImp = (s.prevThroughput > 0) ?
+                      (s.throughput - s.prevThroughput) / s.prevThroughput : 0.0;
+        double dImp = (s.prevDelay > 0) ?
+                      (s.prevDelay - s.delay) / s.prevDelay : 0.0;
 
-        // --- B. 丢包：分档处理（核心逻辑）---
+        // B. 丢包分档处理
         double lossContribution = 0.0;
-        if (s.lossRate < LOSS_THRESHOLD) { 
-            // 情况1：小丢包(<10%) → 用改善量（关注“是否变好”）
-            double lImp = s.prevLossRate - s.lossRate; // 丢包降低→lImp正
-            lossContribution = lImp * 0.5; // 改善量权重0.5
-        } else { 
-            // 情况2：大丢包(≥10%) → 不用改善量，直接指数级绝对惩罚
-            // 指数惩罚：丢包10%→-0.1，20%→-0.25，30%→-0.4，>50%封顶-0.5
+        if (s.lossRate < LOSS_THRESHOLD) {
+            double lImp = s.prevLossRate - s.lossRate;
+            lossContribution = lImp * 0.5;
+        } else {
             lossContribution = -0.5 * (1 - exp(-(s.lossRate - LOSS_THRESHOLD) * 15));
         }
 
-        // --- C. 单链路综合奖励（严格按你的权重：吞吐0.2+延迟0.3+丢包0.5）---
+        // C. 单链路综合奖励
         double linkReward = (tImp * 0.2) + (dImp * 0.3) + lossContribution;
-        // 限制单链路奖励范围，避免极端值干扰
         linkReward = std::min(0.5, std::max(-1.0, linkReward));
 
-        // --- D. 累加总奖励 + 更新最大丢包 ---
+        // D. 使用动态权重累加
         totalReward += linkReward * linkWeights[i];
         maxLoss = std::max(maxLoss, s.lossRate);
 
-        // --- E. 更新历史值（供下次改善量计算用）---
+        // E. 更新历史值
         s.prevThroughput = s.throughput;
         s.prevLossRate = s.lossRate;
         s.prevDelay = s.delay;
     }
 
-    // --- F. 全局惩罚：大丢包时额外加码（加速切换）---
-    if (maxLoss > 0.4) { // 重度丢包(>20%)：额外惩罚
+    // F. 全局惩罚
+    if (maxLoss > 0.4) {
         totalReward -= 0.3;
-    } else if (maxLoss > LOSS_THRESHOLD) { // 中度丢包(10%~20%)：轻度惩罚
+    } else if (maxLoss > LOSS_THRESHOLD) {
         totalReward -= 0.15;
     }
 
-    // 归一化到[-1, 1]
+    // 归一化
     totalReward = std::min(1.0, std::max(-1.0, totalReward));
-    
-    // 调试日志：清晰看到丢包分档和奖励构成
-    std::cout << "[奖励计算] 总奖励: " << totalReward 
-              << " | 最大丢包: " << maxLoss*100 << "% "
-              << " | 丢包处理模式: " << (maxLoss < LOSS_THRESHOLD ? "改善量" : "绝对惩罚") << std::endl;
+
+    std::cout << "[奖励计算] 总奖励: " << totalReward
+              << " | 最大丢包: " << maxLoss*100 << "%"
+              << " | 活跃链路: " << m_activeLinkCount << std::endl;
 
     return totalReward;
 }

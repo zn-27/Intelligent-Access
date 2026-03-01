@@ -246,6 +246,15 @@ namespace ns3
         NetworkState EvaluateNetworkState();
         void ExecuteSwitchingAction(int action);
         double CalculateReward();
+
+        // 链路状态管理（新增）
+        std::map<uint16_t, int> m_portToLinkIndex;  // 端口到链路索引的映射
+        std::vector<bool> m_activeLinks;            // 有效链路标志
+        int m_activeLinkCount;                      // 实际有效链路数量
+        static constexpr int MAX_LINKS = 10;        // 最大链路数
+
+        // 新增函数声明
+        std::vector<double> CalculateThroughputWeights();  // 动态计算吞吐量权重
     };
 
 } // namespace ns3
