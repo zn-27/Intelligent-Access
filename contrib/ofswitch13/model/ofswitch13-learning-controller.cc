@@ -1542,42 +1542,15 @@ OFSwitch13LearningController::ProcessPortReport(uint16_t port, double throughput
         return;
     }
 
-    // 情况2：端口在观察列表
-    if (IsPortObserved(port)) {
-        auto& info = m_observedPorts[port];
-        info.lastSeenTime = now;
-        info.lastThroughput = throughput;
-
-        if (throughput >= m_currentThroughputThreshold) {
-            info.consecutiveHits++;
-
-            // 连续N次达到阈值，注册端口
-            if (info.consecutiveHits >= OBSERVE_COUNT_THRESHOLD) {
-                std::cout << "[端口提升] 端口 " << port << " 从观察列表提升为注册"
-                          << " (连续 " << info.consecutiveHits << " 次达到阈值)" << std::endl;
-                m_observedPorts.erase(port);
-                RegisterPort(port);
-            }
-        } else {
-            // 未达到阈值，重置计数
-            info.consecutiveHits = 0;
-        }
-        return;
-    }
-
-    // 情况3：新端口
+    // 情况2：新端口，超过阈值直接注册（移除观察步骤）
     if (throughput >= m_currentThroughputThreshold) {
-        // 达到阈值，加入观察列表
-        PortObservationInfo info;
-        info.firstSeenTime = now;
-        info.lastSeenTime = now;
-        info.consecutiveHits = 1;
-        info.lastThroughput = throughput;
-
-        m_observedPorts[port] = info;
-
-        std::cout << "[端口观察] 新端口 " << port << " 加入观察列表"
-                  << " (吞吐: " << throughput << " Kbps >= 阈值: " << m_currentThroughputThreshold << ")" << std::endl;
+        int linkIndex = RegisterPort(port);
+        if (linkIndex >= 0) {
+            // 更新注册信息
+            m_portRegistry[port].lastThroughput = throughput;
+            std::cout << "[端口注册] 端口 " << port << " 直接注册"
+                      << " (吞吐: " << throughput << " Kbps >= 阈值: " << m_currentThroughputThreshold << ")" << std::endl;
+        }
     } else {
         NS_LOG_DEBUG("忽略低吞吐端口 " << port << " (吞吐: " << throughput << " < 阈值: " << m_currentThroughputThreshold << ")");
     }

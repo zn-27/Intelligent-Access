@@ -1468,9 +1468,9 @@ int main(int argc, char *argv[])
     // Simulator::Schedule(Seconds(9.0),&OFSwitch13Device::SendPosition,sw3Device);
 
     //  组网模式
-    Simulator::Schedule(Seconds(2.5), &OFSwitch13LearningController::CDL, controllerApp);
-    // 路由协议
-    Simulator::Schedule(Seconds(2.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
+    // Simulator::Schedule(Seconds(2.5), &OFSwitch13LearningController::CDL, controllerApp);
+    // // 路由协议
+    // Simulator::Schedule(Seconds(2.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
 
     // // 只监控 STA 节点
     // NodeContainer monitorNodes;
