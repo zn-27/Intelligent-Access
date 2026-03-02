@@ -1,3 +1,4 @@
+// 3-2 开始 针对train4的无线优化与智能自组织的接入融合
 /* -*- Mode: C++; c-file-style: "gnu"; indent-tabs-mode:nil; -*- */
 /*
  * 单控制器，跨域 SDN 示例，使用 ns-3 + ofswitch13 模块
@@ -317,28 +318,27 @@ int main(int argc, char *argv[])
     mac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer adhocDevsC = wifi.Install(phyC, mac, StaC);
 
-
     // 在这里添加AP应用创建代码：
-// 为域A的AP节点创建应用
-for (uint32_t i = 0; i < ApA.GetN(); ++i) {
-    Ptr<ApProtocolInfoApp> apAppA = CreateObject<ApProtocolInfoApp>();
-    ApA.Get(i)->AddApplication(apAppA);
-    apAppA->SetStartTime(Seconds(0.0));
-    apAppA->SetStopTime(Seconds(simTime - 1.0));
-}
+    // 为域A的AP节点创建应用
+    for (uint32_t i = 0; i < ApA.GetN(); ++i)
+    {
+        Ptr<ApProtocolInfoApp> apAppA = CreateObject<ApProtocolInfoApp>();
+        ApA.Get(i)->AddApplication(apAppA);
+        apAppA->SetStartTime(Seconds(0.0));
+        apAppA->SetStopTime(Seconds(simTime - 1.0));
+    }
 
-// 为域B的AP节点创建应用
-Ptr<ApProtocolInfoApp> apAppB = CreateObject<ApProtocolInfoApp>();
-ApB.Get(0)->AddApplication(apAppB);
-apAppB->SetStartTime(Seconds(0.0));
-apAppB->SetStopTime(Seconds(simTime - 1.0));
+    // 为域B的AP节点创建应用
+    Ptr<ApProtocolInfoApp> apAppB = CreateObject<ApProtocolInfoApp>();
+    ApB.Get(0)->AddApplication(apAppB);
+    apAppB->SetStartTime(Seconds(0.0));
+    apAppB->SetStopTime(Seconds(simTime - 1.0));
 
-// 为域C的AP节点创建应用
-Ptr<ApProtocolInfoApp> apAppC = CreateObject<ApProtocolInfoApp>();
-ApC.Get(0)->AddApplication(apAppC);
-apAppC->SetStartTime(Seconds(0.0));
-apAppC->SetStopTime(Seconds(simTime - 1.0));
-
+    // 为域C的AP节点创建应用
+    Ptr<ApProtocolInfoApp> apAppC = CreateObject<ApProtocolInfoApp>();
+    ApC.Get(0)->AddApplication(apAppC);
+    apAppC->SetStartTime(Seconds(0.0));
+    apAppC->SetStopTime(Seconds(simTime - 1.0));
 
     // 合并所有sta设备
     NetDeviceContainer allStaDevices;
@@ -832,22 +832,23 @@ apAppC->SetStopTime(Seconds(simTime - 1.0));
         std::cout << "注册ARP条目：ApC[0] 网关 " << apCIp << " -> " << apCMac << std::endl;
     }
 
-    
-// 添加获取AP和STA消息的调度函数
-Ptr<OFSwitch13Device> sw1Device = sw1->GetObject<OFSwitch13Device>();
-Ptr<OFSwitch13Device> sw2Device = sw2->GetObject<OFSwitch13Device>();
-Ptr<OFSwitch13Device> sw3Device = sw3->GetObject<OFSwitch13Device>();
+    // 添加获取AP和STA消息的调度函数
+    Ptr<OFSwitch13Device> sw1Device = sw1->GetObject<OFSwitch13Device>();
+    Ptr<OFSwitch13Device> sw2Device = sw2->GetObject<OFSwitch13Device>();
+    Ptr<OFSwitch13Device> sw3Device = sw3->GetObject<OFSwitch13Device>();
 
-
-if (sw1Device) {
-    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
-}
-if (sw2Device) {
-    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
-}
-if (sw3Device) {
-    Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
-}
+    if (sw1Device)
+    {
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
+    }
+    if (sw2Device)
+    {
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
+    }
+    if (sw3Device)
+    {
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
+    }
 
     // LogComponentEnable("OFSwitch13Controller", LOG_LEVEL_DEBUG);
     // 两秒时设置控制器路由优先级
@@ -855,11 +856,11 @@ if (sw3Device) {
     // Simulator::Schedule(Seconds(1.1), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
     // Simulator::Schedule(Seconds(1.3), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
-     //组网模式
+    // 组网模式
     Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
-    //路由协议
+    // 路由协议
     Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
-    
+
     FlowMonitorHelper flowmonHelper;
 
     // 只监控 STA 节点
