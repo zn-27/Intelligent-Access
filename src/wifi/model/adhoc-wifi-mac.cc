@@ -154,6 +154,77 @@ namespace ns3
     }
   }
 
+  // gai dong: Implement Enqueue with from address for OpenFlow switch support
+  void
+  AdhocWifiMac::Enqueue(Ptr<Packet> packet, Mac48Address to, Mac48Address from)
+  {
+    NS_LOG_FUNCTION(this << packet << to << from);
+    if (m_stationManager->IsBrandNew(to))
+    {
+      // In ad hoc mode, we assume that every destination supports all the rates we support.
+      if (GetHtSupported())
+      {
+        m_stationManager->AddAllSupportedMcs(to);
+        m_stationManager->AddStationHtCapabilities(to, GetHtCapabilities());
+      }
+      if (GetVhtSupported())
+      {
+        m_stationManager->AddStationVhtCapabilities(to, GetVhtCapabilities());
+      }
+      if (GetHeSupported())
+      {
+        m_stationManager->AddStationHeCapabilities(to, GetHeCapabilities());
+      }
+      m_stationManager->AddAllSupportedModes(to);
+      m_stationManager->RecordDisassociated(to);
+    }
+
+    WifiMacHeader hdr;
+
+    uint8_t tid = 0;
+
+    if (GetQosSupported())
+    {
+      hdr.SetType(WIFI_MAC_QOSDATA);
+      hdr.SetQosAckPolicy(WifiMacHeader::NORMAL_ACK);
+      hdr.SetQosNoEosp();
+      hdr.SetQosNoAmsdu();
+      hdr.SetQosTxopLimit(0);
+
+      tid = QosUtilsGetTidForPacket(packet);
+      if (tid > 7)
+      {
+        tid = 0;
+      }
+      hdr.SetQosTid(tid);
+    }
+    else
+    {
+      hdr.SetType(WIFI_MAC_DATA);
+    }
+
+    if (GetHtSupported())
+    {
+      hdr.SetNoOrder();
+    }
+    hdr.SetAddr1(to);
+    hdr.SetAddr2(from);  // Use the provided from address instead of GetAddress()
+    hdr.SetAddr3(GetBssid());
+    hdr.SetDsNotFrom();
+    hdr.SetDsNotTo();
+
+    if (GetQosSupported())
+    {
+      NS_ASSERT(tid < 8);
+      m_edca[QosUtilsMapTidToAc(tid)]->Queue(packet, hdr);
+    }
+    else
+    {
+      m_txop->Queue(packet, hdr);
+    }
+  }
+  // gai dong end
+
   void
   AdhocWifiMac::SetLinkUpCallback(Callback<void> linkUp)
   {

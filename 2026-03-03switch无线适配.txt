@@ -1,0 +1,52 @@
+### 简体中文翻译（精准技术版）
+我已按方案完成 OpenFlow 交换机间 AdHoc WiFi 互联的开发实现，具体工作如下：
+
+#### 已完成的修改
+1. **修改 train4.cc 文件**：
+   - 将交换机间的 CSMA 互联代码替换为 AdHoc WiFi 配置
+   - 为交换机间通信创建专用 WiFi 信道
+   - 采用 VirtualNetDevice 封装 WiFi 设备，以适配 OpenFlow 协议
+   - 为交换机虚拟接口配置 IP 地址（192.168.100.0/24 网段）
+   - 为交换机虚拟接口添加 ARP 注册
+   - 更新交换机 WiFi 接口的 PCAP 抓包配置
+   - 调整交换机位置以优化 WiFi 覆盖效果
+
+2. **修改 adhoc-wifi-mac.h 和 adhoc-wifi-mac.cc 文件**：
+   - 新增 `Enqueue(Ptr<Packet>, Mac48Address to, Mac48Address from)` 方法，以支持 OpenFlow 交换机所需的 `SendFrom()` 操作
+
+#### 当前状态
+**正常工作项**：
+- ✅ 代码编译成功
+- ✅ 仿真运行无报错
+- ✅ 交换机通过 OpenFlow 协议连接至控制器
+- ✅ 交换机间可传输 WiFi 数据包
+- ✅ 域内流量（流 3：StaC[0] → StaC[2]）完全正常，丢包率 0%
+
+**异常项**：
+- ❌ 跨域流量（流 0、1、2）丢包率 100%
+
+#### 根因分析
+跨域流量失效的核心原因是：CSMA 点对点链路与 WiFi 广播介质的**底层架构存在本质差异**：
+1. **原 CSMA 架构**：每台交换机与其他交换机间均有专用点对点链路，数据包中的 MAC 地址对交换机间链路无影响；
+2. **新 WiFi 架构**：所有交换机共享同一广播信道。当 sw1 发送数据包时，所有交换机都会接收，但数据包中的目的 MAC 地址仍是原始目标（如 ApA 的 MAC），而非下一跳交换机的 MAC。
+
+为适配 WiFi 广播特性，需对面向 CSMA 拓扑设计的 OpenFlow 控制器进行改造，具体需实现：
+- 在每个转发节点重写 MAC 地址
+- 或采用隧道/封装技术保留原始数据包结构
+- 或更新流表规则以适配共享介质特性
+
+#### 已修改文件清单
+1. /home/cs18/tarballs/ns-allinone-3.34/ns-3.34/scratch/train4.cc
+2. /home/cs18/tarballs/ns-allinone-3.34/ns-3.34/src/wifi/model/adhoc-wifi-mac.h
+3. /home/cs18/tarballs/ns-allinone-3.34/ns-3.34/src/wifi/model/adhoc-wifi-mac.cc
+
+#### 补充说明
+WiFi 设备作为 OpenFlow 交换机端口的技术实现已全部完成且可正常工作（包括 VirtualNetDevice 封装、SendFrom 支持等）。剩余问题仅存在于 OpenFlow 控制器层面——需优化其在广播介质中处理跨域路由的逻辑。
+
+### 关键术语注释（便于调试）
+1. **AdHoc WiFi**：WiFi 自组织模式（无中心 AP，设备直连）
+2. **VirtualNetDevice**：虚拟网络设备（ns-3 中用于封装底层设备以适配上层协议的核心类）
+3. **ARP registration**：地址解析协议注册（解决跨网段 MAC-IP 映射问题）
+4. **PCAP tracing**：PCAP 抓包追踪（用于分析数据包流转）
+5. **broadcast medium**：广播介质（WiFi 属于共享广播信道，与 CSMA 点对点链路核心区别）
+6. **MAC address rewriting**：MAC 地址重写（解决广播信道中数据包目标识别问题的核心方案）

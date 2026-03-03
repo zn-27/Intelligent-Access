@@ -48,7 +48,8 @@ namespace ns3
     void SetAddress(Mac48Address address) override;
     void SetLinkUpCallback(Callback<void> linkUp) override;
     void Enqueue(Ptr<Packet> packet, Mac48Address to) override;
-    // gai dong
+    // gai dong: Add Enqueue with from address for OpenFlow switch support
+    void Enqueue(Ptr<Packet> packet, Mac48Address to, Mac48Address from) override;
     bool SupportsSendFrom(void) const override;
     // gai dong
   private:
