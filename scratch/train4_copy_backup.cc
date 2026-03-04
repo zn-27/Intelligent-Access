@@ -133,8 +133,6 @@ void TraceIcmpPacketWithMac(std::string location, Ptr<const Packet> packet)
 
 // Helper function for WiFi -> VirtualNetDevice packet forwarding
 // Used to bridge WiFi received packets to VirtualNetDevice for OpenFlow processing
-// 【关键修复】WiFi AdHoc传输的是IP包（无Ethernet头），但OpenFlow Pipeline需要Ethernet帧
-// 所以在转发给VirtualNetDevice之前需要添加Ethernet头
 bool WifiToVirtualDevForward(Ptr<VirtualNetDevice> vdev, Ptr<NetDevice> dev,
                              Ptr<const Packet> packet, uint16_t protocol,
                              const Address &source, const Address &dest,
@@ -152,42 +150,21 @@ bool WifiToVirtualDevForward(Ptr<VirtualNetDevice> vdev, Ptr<NetDevice> dev,
         if (ipv4Header.GetProtocol() == 1)
         {
             // 追踪：进入 vdev 之前
-            // TraceIcmpPacketWithMac(switchName + "-1-BeforeVdev", packet);
+            TraceIcmpPacketWithMac(switchName + "-1-BeforeVdev", packet);
 
-            // 【关键修复】为IP包添加Ethernet头
+            // 调用 vdev->Receive()
             Ptr<Packet> packetCopy = packet->Copy();
-            Mac48Address srcMac = Mac48Address::ConvertFrom(dev->GetAddress());
-            Mac48Address dstMac = Mac48Address::ConvertFrom(vdev->GetAddress());
-            EthernetHeader ethHeader(false); // 不使用preamble
-            ethHeader.SetSource(srcMac);
-            ethHeader.SetDestination(dstMac);
-            ethHeader.SetLengthType(0x0800); // IPv4
-            EthernetTrailer ethTrailer;
-            packetCopy->AddHeader(ethHeader);
-            packetCopy->AddTrailer(ethTrailer);
-
-            // 调用 vdev->Receive()，使用Ethernet协议类型
-            bool ret = vdev->Receive(packetCopy, 0x0800, srcMac, dstMac, packetType);
+            bool ret = vdev->Receive(packetCopy, protocol, source, dest, packetType);
 
             // 追踪: vdev 返回后
-            // TraceIcmpPacketWithMac(switchName + "-2-AfterVdev-" + std::string(ret ? "SUCCESS" : "FAIL"), packet);
+            TraceIcmpPacketWithMac(switchName + "-2-AfterVdev-" + std::string(ret ? "SUCCESS" : "FAIL"), packet);
             return ret;
         }
     }
 
-    // 非 ping 包 - 同样需要添加Ethernet头
+    // 非 ping 包
     Ptr<Packet> packetCopy = packet->Copy();
-    Mac48Address srcMac = Mac48Address::ConvertFrom(dev->GetAddress());
-    Mac48Address dstMac = Mac48Address::ConvertFrom(vdev->GetAddress());
-    EthernetHeader ethHeader(false);
-    ethHeader.SetSource(srcMac);
-    ethHeader.SetDestination(dstMac);
-    ethHeader.SetLengthType(protocol);
-    EthernetTrailer ethTrailer;
-    packetCopy->AddHeader(ethHeader);
-    packetCopy->AddTrailer(ethTrailer);
-
-    return vdev->Receive(packetCopy, protocol, srcMac, dstMac, packetType);
+    return vdev->Receive(packetCopy, protocol, source, dest, packetType);
 }
 
 std::map<uint32_t, double> lastRxBytes;   // 上一次采样时接收字节数
@@ -734,8 +711,6 @@ int main(int argc, char *argv[])
         staticRouting->SetDefaultRoute(apCGateway, 1);
     }
 
-    std::cout << "交换机和AP路由配置完成" << std::endl;
-
     // 打印输出
 
     for (uint32_t i = 0; i < StaA.GetN(); ++i)
@@ -796,74 +771,74 @@ int main(int argc, char *argv[])
         csma.EnablePcap("C_domain_ap", apCsmaDevsC);
     }
 
-    // // 创建ping应用，测试StaB[1] -> StaC[1]的连通性
-    // V4PingHelper pingHelper(ifC.GetAddress(1)); // StaC[2]的IP地址
-    // pingHelper.SetAttribute("Verbose", BooleanValue(true));
+    // 创建ping应用，测试StaB[1] -> StaC[1]的连通性
+    V4PingHelper pingHelper(ifC.GetAddress(1)); // StaC[2]的IP地址
+    pingHelper.SetAttribute("Verbose", BooleanValue(true));
 
-    // // 在StaB[1]上安装ping应用
-    // ApplicationContainer pingApps = pingHelper.Install(StaB.Get(1));
-    // pingApps.Start(Seconds(6.0));          // 【修复】延迟启动，等待流表规则建立完成
-    // pingApps.Stop(Seconds(simTime - 1.0)); // 在仿真结束前2秒停止
+    // 在StaB[1]上安装ping应用
+    ApplicationContainer pingApps = pingHelper.Install(StaB.Get(1));
+    pingApps.Start(Seconds(3.0));          // 1秒后开始ping
+    pingApps.Stop(Seconds(simTime - 1.0)); // 在仿真结束前2秒停止
 
-    // 应用层udp发送
-    uint16_t port0 = 9;
-    uint16_t port1 = 10;
-    uint16_t port2 = 11;
-    uint16_t port3 = 12;
+    // // 应用层udp发送
+    // uint16_t port0 = 9;
+    // uint16_t port1 = 10;
+    // uint16_t port2 = 11;
+    // uint16_t port3 = 12;
 
-    // --- Flow0: StaA[1] -> StaC[2] ---
-    OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("0.1Mbps")); // 原1Mbps
-    onoff0.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff0.SetAttribute("StartTime", TimeValue(Seconds(7))); // 时间设置为接口启动后
-    onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow0: StaA[1] -> StaC[2] ---
+    // OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
+    // onoff0.SetAttribute("DataRate", StringValue("1Mbps")); // 原1Mbps
+    // onoff0.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
+    // onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    // 设置目标地址
-    InetSocketAddress dst0(ifC.GetAddress(2), port0);
-    onoff0.SetAttribute("Remote", AddressValue(dst0));
+    // // 设置目标地址
+    // InetSocketAddress dst0(ifC.GetAddress(2), port0);
+    // onoff0.SetAttribute("Remote", AddressValue(dst0));
 
-    ApplicationContainer app0 = onoff0.Install(StaA.Get(1));
+    // ApplicationContainer app0 = onoff0.Install(StaA.Get(1));
 
-    // --- Flow1: StaA[3] -> StaB[1] ---
-    OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("0.1Mbps"));
-    onoff1.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff1.SetAttribute("StartTime", TimeValue(Seconds(7)));
-    onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow1: StaA[3] -> StaB[1] ---
+    // OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
+    // onoff1.SetAttribute("DataRate", StringValue("1Mbps"));
+    // onoff1.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff1.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
+    // onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst1(ifB.GetAddress(1), port1);
-    onoff1.SetAttribute("Remote", AddressValue(dst1));
+    // InetSocketAddress dst1(ifB.GetAddress(1), port1);
+    // onoff1.SetAttribute("Remote", AddressValue(dst1));
 
-    ApplicationContainer app1 = onoff1.Install(StaA.Get(3));
+    // ApplicationContainer app1 = onoff1.Install(StaA.Get(3));
 
-    // --- Flow2: StaB[0] -> StaC[1] ---
-    OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
-    onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
-    onoff2.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff2.SetAttribute("StartTime", TimeValue(Seconds(7)));
-    onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow2: StaB[0] -> StaC[1] ---
+    // OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
+    // onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
+    // onoff2.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff2.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
+    // onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst2(ifC.GetAddress(1), port2);
-    onoff2.SetAttribute("Remote", AddressValue(dst2));
+    // InetSocketAddress dst2(ifC.GetAddress(1), port2);
+    // onoff2.SetAttribute("Remote", AddressValue(dst2));
 
-    ApplicationContainer app2 = onoff2.Install(StaB.Get(0));
+    // ApplicationContainer app2 = onoff2.Install(StaB.Get(0));
 
-    // --- Flow3: StaC[0] -> StaC[2] ---
-    OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
-    onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
-    onoff3.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff3.SetAttribute("StartTime", TimeValue(Seconds(7)));
-    onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
+    // // --- Flow3: StaC[0] -> StaC[2] ---
+    // OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
+    // onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
+    // onoff3.SetAttribute("PacketSize", UintegerValue(1024));
+    // onoff3.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
+    // onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
-    InetSocketAddress dst3(ifC.GetAddress(5), port3);
-    onoff3.SetAttribute("Remote", AddressValue(dst3));
+    // InetSocketAddress dst3(ifC.GetAddress(5), port3);
+    // onoff3.SetAttribute("Remote", AddressValue(dst3));
 
-    Ipv4Address srcIp = ifC.GetAddress(3); // device 1 的 IP
+    // Ipv4Address srcIp = ifC.GetAddress(3); // device 1 的 IP
 
-    InetSocketAddress local(srcIp);
-    onoff3.SetAttribute("Local", AddressValue(local));
+    // InetSocketAddress local(srcIp);
+    // onoff3.SetAttribute("Local", AddressValue(local));
 
-    ApplicationContainer app3 = onoff3.Install(StaC.Get(0));
+    // ApplicationContainer app3 = onoff3.Install(StaC.Get(0));
 
     //----------------------------
     // adhoc接口开关（C域）
@@ -1037,28 +1012,29 @@ int main(int argc, char *argv[])
     Ptr<OFSwitch13Device> sw2Device = sw2->GetObject<OFSwitch13Device>();
     Ptr<OFSwitch13Device> sw3Device = sw3->GetObject<OFSwitch13Device>();
 
-    // 【修复】延迟调用，确保OpenFlow连接已完全建立
     if (sw1Device)
     {
-        Simulator::Schedule(Seconds(5.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw1Device);
     }
     if (sw2Device)
     {
-        Simulator::Schedule(Seconds(5.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw2Device);
     }
     if (sw3Device)
     {
-        Simulator::Schedule(Seconds(5.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
+        Simulator::Schedule(Seconds(3.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
     }
 
     // LogComponentEnable("OFSwitch13Controller", LOG_LEVEL_DEBUG);
-    // 【修复】延迟设置路由优先级，确保OpenFlow连接已建立
-    Simulator::Schedule(Seconds(4.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
+    // 两秒时设置控制器路由优先级
+    Simulator::Schedule(Seconds(2.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
+    // Simulator::Schedule(Seconds(1.1), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
+    // Simulator::Schedule(Seconds(1.3), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
-    // 组网模式切换
-    // Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
+    // 组网模式
+    Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
     // 路由协议
-    // Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
+    Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
 
     FlowMonitorHelper flowmonHelper;
 

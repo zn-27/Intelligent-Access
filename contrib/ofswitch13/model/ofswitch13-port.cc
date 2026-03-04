@@ -23,10 +23,56 @@
 #include <ns3/pointer.h>
 #include <ns3/csma-net-device.h>
 #include <ns3/virtual-net-device.h>
+#include <ns3/ipv4-header.h>
+#include <ns3/simulator.h>
 #include "ofswitch13-device.h"
 #include "ofswitch13-port.h"
 #include "tunnel-id-tag.h"
 #include "queue-tag.h"
+
+// 全局追踪函数：追踪目标为 10.3.1.2 的 ICMP 包
+void TraceIcmpPacket(std::string location, ns3::Ptr<const ns3::Packet> packet)
+{
+    ns3::Ptr<ns3::Packet> pkt = packet->Copy();
+    ns3::Ipv4Header ipv4Header;
+
+    // 尝试解析 IPv4
+    if (pkt->PeekHeader(ipv4Header))
+    {
+        // 只追踪目标为 10.3.1.2 的 ICMP 包
+        if (ipv4Header.GetDestination() == ns3::Ipv4Address("10.3.1.2") &&
+            ipv4Header.GetProtocol() == 1)
+        {
+            std::cout << "[" << ns3::Simulator::Now().GetSeconds() << "s] "
+                      << "[TRACE] " << location
+                      << " | " << ipv4Header.GetSource()
+                      << " -> " << ipv4Header.GetDestination()
+                      << " | Size: " << packet->GetSize() << " bytes" << std::endl;
+        }
+    }
+}
+
+// 带 DP ID 的追踪函数
+void TraceIcmpPacketWithDp(std::string location, uint64_t dpId, ns3::Ptr<const ns3::Packet> packet)
+{
+    ns3::Ptr<ns3::Packet> pkt = packet->Copy();
+    ns3::Ipv4Header ipv4Header;
+
+    // 尝试解析 IPv4
+    if (pkt->PeekHeader(ipv4Header))
+    {
+        // 只追踪目标为 10.3.1.2 的 ICMP 包
+        if (ipv4Header.GetDestination() == ns3::Ipv4Address("10.3.1.2") &&
+            ipv4Header.GetProtocol() == 1)
+        {
+            std::cout << "[" << ns3::Simulator::Now().GetSeconds() << "s] "
+                      << "[TRACE] [DP:" << dpId << "] " << location
+                      << " | " << ipv4Header.GetSource()
+                      << " -> " << ipv4Header.GetDestination()
+                      << " | Size: " << packet->GetSize() << " bytes" << std::endl;
+        }
+    }
+}
 
 #undef NS_LOG_APPEND_CONTEXT
 #define NS_LOG_APPEND_CONTEXT \
@@ -337,6 +383,9 @@ OFSwitch13Port::Receive (Ptr<NetDevice> device, Ptr<const Packet> packet,
   m_rxTrace (packet);
   NS_LOG_DEBUG ("Pkt " << packet->GetUid () << " received at this port.");
 
+  // 追踪 ICMP 包（包含 DP ID）
+  TraceIcmpPacketWithDp("Port" + std::to_string(m_portNo) + "-Receive", m_dpId, packet);
+
   // Retrieve the tunnel id from packet, if available.
   Ptr<Packet> localPacket = packet->Copy ();
   TunnelIdTag tunnelIdTag;
@@ -364,6 +413,9 @@ OFSwitch13Port::Send (Ptr<const Packet> packet, uint32_t queueNo,
 
   // Fire TX trace source (with complete packet)
   m_txTrace (packet);
+
+  // 追踪 ICMP 报文
+  TraceIcmpPacketWithDp("Port" + std::to_string(m_portNo) + "-Send", m_dpId, packet);
 
   Ptr<Packet> packetCopy = packet->Copy ();
   NS_LOG_DEBUG ("Pkt " << packetCopy->GetUid () <<

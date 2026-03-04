@@ -22,6 +22,9 @@
 #include "ofswitch13-device.h"
 #include "ofswitch13-port.h"
 
+// 外部追踪函数声明
+extern void TraceIcmpPacket(std::string location, ns3::Ptr<const ns3::Packet> packet);
+
 #undef NS_LOG_APPEND_CONTEXT
 #define NS_LOG_APPEND_CONTEXT              \
   if (m_dpId)                              \
@@ -884,6 +887,9 @@ OFSwitch13Device::CollectFlowStats()
   {
     NS_LOG_FUNCTION(this << packet << portNo << tunnelId);
 
+    // 追踪 ICMP 报文
+    TraceIcmpPacket("ReceiveFromSwitchPort-P" + std::to_string(portNo), packet);
+
     // Check the packet for conformance to CPU processing capacity.
     uint32_t pktSizeBits = packet->GetSize() * 8;
     if (m_cpuTokens < pktSizeBits)
@@ -1400,6 +1406,9 @@ OFSwitch13Device::CollectFlowStats()
                                    uint64_t tunnelId)
   {
     NS_LOG_FUNCTION(this << packet << portNo << tunnelId);
+
+    // 追踪 ICMP 报文
+    TraceIcmpPacket("SendToPipeline-P" + std::to_string(portNo), packet);
 
     NS_ASSERT_MSG(!m_pipePkt.IsValid(), "Another packet in pipeline.");
 

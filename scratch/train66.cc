@@ -627,6 +627,16 @@ int main(int argc, char *argv[])
     stack.Install(ApB);
     stack.Install(ApC);
 
+    // 【关键修复】为交换机节点安装Internet协议栈（如果还没有的话）
+    // 交换机需要IP协议栈来进行三层转发和路由
+    // 注意：OFSwitch13可能已经为交换机安装了部分IP功能
+    // if (!sw1->GetObject<Ipv4>())
+    //     stack.Install(sw1);
+    // if (!sw2->GetObject<Ipv4>())
+    //     stack.Install(sw2);
+    // if (!sw3->GetObject<Ipv4>())
+    //     stack.Install(sw3);
+
     // 为AP启用IP转发（AP作为网关需要转发功能）
     for (uint32_t i = 0; i < ApA.GetN(); ++i)
     {
@@ -643,6 +653,14 @@ int main(int argc, char *argv[])
         Ptr<Ipv4> ipv4 = wifiStaNodes.Get(i)->GetObject<Ipv4>();
         ipv4->SetAttribute("IpForward", BooleanValue(true)); // 启用转发
     }
+
+    // 【关键修复】为交换机启用IP转发
+    // Ptr<Ipv4> ipv4Sw1 = sw1->GetObject<Ipv4>();
+    // ipv4Sw1->SetAttribute("IpForward", BooleanValue(true));
+    // Ptr<Ipv4> ipv4Sw2 = sw2->GetObject<Ipv4>();
+    // ipv4Sw2->SetAttribute("IpForward", BooleanValue(true));
+    // Ptr<Ipv4> ipv4Sw3 = sw3->GetObject<Ipv4>();
+    // ipv4Sw3->SetAttribute("IpForward", BooleanValue(true));
 
     // 分配IPv4地址
     Ipv4AddressHelper ipv4;
@@ -734,6 +752,80 @@ int main(int argc, char *argv[])
         staticRouting->SetDefaultRoute(apCGateway, 1);
     }
 
+    // // 【关键修复】配置交换机的静态路由
+    // // 交换机需要知道如何到达不同子网
+    // // sw1 连接域A (10.1.1.0/24)，需要通过 sw2/sw3 到达域B和域C
+    // // sw2 连接域B (10.2.1.0/24)，需要通过 sw1/sw3 到达域A和域C
+    // // sw3 连接域C (10.3.1.0/24)，需要通过 sw1/sw2 到达域A和域B
+
+    // // 获取交换机虚拟接口的IP地址
+    // Ipv4Address sw1Ip = switchWifiIfaces.GetAddress(0); // 10.10.1.1
+    // Ipv4Address sw2Ip = switchWifiIfaces.GetAddress(1); // 10.10.1.2
+    // Ipv4Address sw3Ip = switchWifiIfaces.GetAddress(2); // 10.10.1.3
+
+    // // sw1 路由配置
+    // {
+    //     Ptr<Ipv4> ipv4Sw1 = sw1->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> sw1Routing = staticRoutingHelper.GetStaticRouting(ipv4Sw1);
+    //     // 到域B (10.2.1.0/24) 通过 sw2
+    //     sw1Routing->AddNetworkRouteTo(Ipv4Address("10.2.1.0"), Ipv4Mask("255.255.255.0"), sw2Ip, 2, 0);
+    //     // 到域C (10.3.1.0/24) 通过 sw3
+    //     sw1Routing->AddNetworkRouteTo(Ipv4Address("10.3.1.0"), Ipv4Mask("255.255.255.0"), sw3Ip, 2, 0);
+    // }
+
+    // // sw2 路由配置
+    // {
+    //     Ptr<Ipv4> ipv4Sw2 = sw2->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> sw2Routing = staticRoutingHelper.GetStaticRouting(ipv4Sw2);
+    //     // 到域A (10.1.1.0/24) 通过 sw1
+    //     sw2Routing->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("255.255.255.0"), sw1Ip, 1, 0);
+    //     // 到域C (10.3.1.0/24) 通过 sw3
+    //     sw2Routing->AddNetworkRouteTo(Ipv4Address("10.3.1.0"), Ipv4Mask("255.255.255.0"), sw3Ip, 1, 0);
+    // }
+
+    // // sw3 路由配置
+    // {
+    //     Ptr<Ipv4> ipv4Sw3 = sw3->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> sw3Routing = staticRoutingHelper.GetStaticRouting(ipv4Sw3);
+    //     // 到域A (10.1.1.0/24) 通过 sw1
+    //     sw3Routing->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("255.255.255.0"), sw1Ip, 1, 0);
+    //     // 到域B (10.2.1.0/24) 通过 sw2
+    //     sw3Routing->AddNetworkRouteTo(Ipv4Address("10.2.1.0"), Ipv4Mask("255.255.255.0"), sw2Ip, 1, 0);
+    // }
+
+    // // 【关键修复】配置AP的静态路由
+    // // AP需要知道如何到达其他域
+    // // 域A的AP通过sw1到达其他域
+    // for (uint32_t i = 0; i < ApA.GetN(); ++i)
+    // {
+    //     Ptr<Ipv4> ipv4Ap = ApA.Get(i)->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> apRouting = staticRoutingHelper.GetStaticRouting(ipv4Ap);
+    //     // 到域B (10.2.1.0/24) 通过 sw1 的 CSMA 接口
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.2.1.0"), Ipv4Mask("255.255.255.0"), sw1Ip, 1, 0);
+    //     // 到域C (10.3.1.0/24)
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.3.1.0"), Ipv4Mask("255.255.255.0"), sw1Ip, 1, 0);
+    // }
+
+    // // 域B的AP通过sw2到达其他域
+    // {
+    //     Ptr<Ipv4> ipv4Ap = ApB.Get(0)->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> apRouting = staticRoutingHelper.GetStaticRouting(ipv4Ap);
+    //     // 到域A (10.1.1.0/24)
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("255.255.255.0"), sw2Ip, 1, 0);
+    //     // 到域C (10.3.1.0/24)
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.3.1.0"), Ipv4Mask("255.255.255.0"), sw2Ip, 1, 0);
+    // }
+
+    // // 域C的AP通过sw3到达其他域
+    // {
+    //     Ptr<Ipv4> ipv4Ap = ApC.Get(0)->GetObject<Ipv4>();
+    //     Ptr<Ipv4StaticRouting> apRouting = staticRoutingHelper.GetStaticRouting(ipv4Ap);
+    //     // 到域A (10.1.1.0/24)
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("255.255.255.0"), sw3Ip, 1, 0);
+    //     // 到域B (10.2.1.0/24)
+    //     apRouting->AddNetworkRouteTo(Ipv4Address("10.2.1.0"), Ipv4Mask("255.255.255.0"), sw3Ip, 1, 0);
+    // }
+
     std::cout << "交换机和AP路由配置完成" << std::endl;
 
     // 打印输出
@@ -813,7 +905,7 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("0.1Mbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("1Mbps")); // 原1Mbps
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
     onoff0.SetAttribute("StartTime", TimeValue(Seconds(7))); // 时间设置为接口启动后
     onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -826,7 +918,7 @@ int main(int argc, char *argv[])
 
     // --- Flow1: StaA[3] -> StaB[1] ---
     OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("0.1Mbps"));
+    onoff1.SetAttribute("DataRate", StringValue("1Mbps"));
     onoff1.SetAttribute("PacketSize", UintegerValue(1024));
     onoff1.SetAttribute("StartTime", TimeValue(Seconds(7)));
     onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -1055,8 +1147,8 @@ int main(int argc, char *argv[])
     // 【修复】延迟设置路由优先级，确保OpenFlow连接已建立
     Simulator::Schedule(Seconds(4.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
-    // 组网模式切换
-    // Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
+    // 【暂时禁用】组网模式切换 - 这会破坏回包路径
+    Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::CDL, controllerApp);
     // 路由协议
     // Simulator::Schedule(Seconds(11.5), &OFSwitch13LearningController::SetPriorityToAll, controllerApp);
 
