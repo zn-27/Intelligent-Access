@@ -625,7 +625,7 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("1Mbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("0.2Mbps")); // 原1Mbps
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
     onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
     onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -638,7 +638,7 @@ int main(int argc, char *argv[])
 
     // --- Flow1: StaA[3] -> StaB[1] ---
     OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff1.SetAttribute("DataRate", StringValue("0.2Mbps"));
     onoff1.SetAttribute("PacketSize", UintegerValue(1024));
     onoff1.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -650,7 +650,7 @@ int main(int argc, char *argv[])
 
     // --- Flow2: StaB[0] -> StaC[1] ---
     OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
-    onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff2.SetAttribute("DataRate", StringValue("0.2Mbps"));
     onoff2.SetAttribute("PacketSize", UintegerValue(1024));
     onoff2.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
@@ -662,7 +662,7 @@ int main(int argc, char *argv[])
 
     // --- Flow3: StaC[0] -> StaC[2] ---
     OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
-    onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff3.SetAttribute("DataRate", StringValue("0.2Mbps"));
     onoff3.SetAttribute("PacketSize", UintegerValue(1024));
     onoff3.SetAttribute("StartTime", TimeValue(Seconds(3.5)));
     onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));

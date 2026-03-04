@@ -356,7 +356,8 @@ int main(int argc, char *argv[])
     // wifi配置部分
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
     WifiHelper wifi;
-    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager");
+    wifi.SetStandard(WIFI_STANDARD_80211n_2_4GHZ);
+    wifi.SetRemoteStationManager("ns3::MinstrelHtWifiManager");
     WifiMacHelper mac; // 逻辑可复用
 
     // --------------------------
@@ -370,10 +371,17 @@ int main(int argc, char *argv[])
 
     // 配置PHY (使用更高功率确保可靠连接)
     YansWifiPhyHelper switchPhy;
-    switchPhy.SetChannel(switchChannel);
-    switchPhy.Set("TxPowerStart", DoubleValue(30.0)); // 提高功率到30dBm (1W)
-    switchPhy.Set("TxPowerEnd", DoubleValue(30.0));
 
+    switchPhy.SetChannel(switchChannel);
+    switchPhy.Set("ChannelWidth", UintegerValue(40));
+    switchPhy.Set("TxPowerStart", DoubleValue(33.0)); // 提高功率到30dBm (1W)
+    switchPhy.Set("TxPowerEnd", DoubleValue(33.0));
+    // 启用 2x2 MIMO（需要 802.11n 或 802.11ac 标准）
+    switchPhy.Set("Antennas", UintegerValue(4));
+    switchPhy.Set("MaxSupportedTxSpatialStreams", UintegerValue(4));
+    switchPhy.Set("MaxSupportedRxSpatialStreams", UintegerValue(4));
+    switchPhy.Set("TxGain", DoubleValue(10.0));
+    switchPhy.Set("RxGain", DoubleValue(10.0));
     // 配置AdHoc MAC
     WifiMacHelper switchMac;
     switchMac.SetType("ns3::AdhocWifiMac");
@@ -813,9 +821,12 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("0.1Mbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("0.4Mbps")); // 原1Mbps
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff0.SetAttribute("StartTime", TimeValue(Seconds(7))); // 时间设置为接口启动后
+    // 【新增这两行，干掉默认的间歇发包机制】
+    onoff0.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+    onoff0.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+    onoff0.SetAttribute("StartTime", TimeValue(Seconds(10))); // 时间设置为接口启动后
     onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
     // 设置目标地址
@@ -826,9 +837,12 @@ int main(int argc, char *argv[])
 
     // --- Flow1: StaA[3] -> StaB[1] ---
     OnOffHelper onoff1("ns3::UdpSocketFactory", Address());
-    onoff1.SetAttribute("DataRate", StringValue("0.1Mbps"));
+    onoff1.SetAttribute("DataRate", StringValue("0.4Mbps"));
     onoff1.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff1.SetAttribute("StartTime", TimeValue(Seconds(7)));
+    // 【新增这两行，干掉默认的间歇发包机制】
+    onoff1.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+    onoff1.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+    onoff1.SetAttribute("StartTime", TimeValue(Seconds(10)));
     onoff1.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
     InetSocketAddress dst1(ifB.GetAddress(1), port1);
@@ -838,9 +852,12 @@ int main(int argc, char *argv[])
 
     // --- Flow2: StaB[0] -> StaC[1] ---
     OnOffHelper onoff2("ns3::UdpSocketFactory", Address());
-    onoff2.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff2.SetAttribute("DataRate", StringValue("0.4Mbps"));
     onoff2.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff2.SetAttribute("StartTime", TimeValue(Seconds(7)));
+    // 【新增这两行，干掉默认的间歇发包机制】
+    onoff2.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+    onoff2.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+    onoff2.SetAttribute("StartTime", TimeValue(Seconds(10)));
     onoff2.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
     InetSocketAddress dst2(ifC.GetAddress(1), port2);
@@ -850,9 +867,12 @@ int main(int argc, char *argv[])
 
     // --- Flow3: StaC[0] -> StaC[2] ---
     OnOffHelper onoff3("ns3::UdpSocketFactory", Address());
-    onoff3.SetAttribute("DataRate", StringValue("1Mbps"));
+    onoff3.SetAttribute("DataRate", StringValue("0.4Mbps"));
     onoff3.SetAttribute("PacketSize", UintegerValue(1024));
-    onoff3.SetAttribute("StartTime", TimeValue(Seconds(7)));
+    // 【新增这两行，干掉默认的间歇发包机制】
+    onoff3.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+    onoff3.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+    onoff3.SetAttribute("StartTime", TimeValue(Seconds(10)));
     onoff3.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));
 
     InetSocketAddress dst3(ifC.GetAddress(5), port3);
