@@ -625,7 +625,7 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("0.2Mbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("3Mbps")); // 原1Mbps
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
     onoff0.SetAttribute("StartTime", TimeValue(Seconds(3.5))); // 时间设置为接口启动后
     onoff0.SetAttribute("StopTime", TimeValue(Seconds(simTime - 1)));

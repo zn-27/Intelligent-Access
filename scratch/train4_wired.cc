@@ -322,8 +322,8 @@ int main(int argc, char *argv[])
 
     // 有线链路配置
     CsmaHelper csma;
-    csma.SetChannelAttribute("DataRate", DataRateValue(DataRate("10Mbps")));
-    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
+    csma.SetChannelAttribute("DataRate", DataRateValue(DataRate("100Mbps"))); // [P1] 10Mbps→100Mbps 消除有线瓶颈
+    csma.SetChannelAttribute("Delay", TimeValue(MicroSeconds(500)));          // [P1] 2ms→500us 降低链路延迟
 
     NetDeviceContainer apCsmaDevsA, apCsmaDevsB, apCsmaDevsC;    // AP设备有线接口
     NetDeviceContainer sw1Devsports, sw2Devsports, sw3Devsports; // 交换机端口设备
@@ -356,81 +356,53 @@ int main(int argc, char *argv[])
     // wifi配置部分
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
     WifiHelper wifi;
-    wifi.SetStandard(WIFI_STANDARD_80211n_2_4GHZ);
+    wifi.SetStandard(WIFI_STANDARD_80211n_2_4GHZ); // 保持802.11n 2.4GHz（5GHz在YansWifiChannel默认参数下路径损耗过大导致100%丢包）
     wifi.SetRemoteStationManager("ns3::MinstrelHtWifiManager");
+    // [改动3] 全局40MHz信道宽度，物理层速率翻倍
+    Config::SetDefault("ns3::WifiPhy::ChannelWidth", UintegerValue(40));
     WifiMacHelper mac; // 逻辑可复用
 
     // --------------------------
-    // 交换机之间AdHoc WiFi无线连接配置（替换原CSMA有线连接）
-    // 使用VirtualNetDevice包装WiFi设备以兼容OpenFlow
+    // [方案B] 交换机之间改用 CSMA 1000Mbps 有线链路（替代原WiFi AdHoc）
+    // 三角互连：sw1-sw2, sw2-sw3, sw3-sw1
+    // 直接将CSMA接口加入交换机端口，无需VirtualNetDevice包装
     // --------------------------
-    // 创建switch间无线互连专用WiFi信道
-    // 使用默认信道配置（更宽松的传播模型）以确保switch间通信
-    YansWifiChannelHelper switchChannelHelper = YansWifiChannelHelper::Default();
-    Ptr<YansWifiChannel> switchChannel = switchChannelHelper.Create();
-
-    // 配置PHY (使用更高功率确保可靠连接)
-    YansWifiPhyHelper switchPhy;
-
-    switchPhy.SetChannel(switchChannel);
-    switchPhy.Set("ChannelWidth", UintegerValue(40));
-    switchPhy.Set("TxPowerStart", DoubleValue(33.0)); // 提高功率到30dBm (1W)
-    switchPhy.Set("TxPowerEnd", DoubleValue(33.0));
-    // 启用 2x2 MIMO（需要 802.11n 或 802.11ac 标准）
-    switchPhy.Set("Antennas", UintegerValue(4));
-    switchPhy.Set("MaxSupportedTxSpatialStreams", UintegerValue(4));
-    switchPhy.Set("MaxSupportedRxSpatialStreams", UintegerValue(4));
-    switchPhy.Set("TxGain", DoubleValue(10.0));
-    switchPhy.Set("RxGain", DoubleValue(10.0));
-    // 配置AdHoc MAC
+    // MAC队列优化保留
+    Config::SetDefault("ns3::RegularWifiMac::BE_MaxAmpduSize", UintegerValue(65535));
+    Config::SetDefault("ns3::RegularWifiMac::BK_MaxAmpduSize", UintegerValue(65535));
+    Config::SetDefault("ns3::RegularWifiMac::VI_MaxAmpduSize", UintegerValue(65535));
+    Config::SetDefault("ns3::RegularWifiMac::VO_MaxAmpduSize", UintegerValue(65535));
     Config::SetDefault("ns3::WifiMacQueue::MaxSize", StringValue("2000p"));
-    Config::SetDefault("ns3::WifiMacQueue::MaxDelay", TimeValue(Seconds(10.0)));
-    WifiMacHelper switchMac;
-    switchMac.SetType("ns3::AdhocWifiMac");
+    Config::SetDefault("ns3::WifiMacQueue::MaxDelay", TimeValue(MilliSeconds(200)));
 
-    // 为三个交换机创建WiFi设备
+    CsmaHelper switchCsma;
+    switchCsma.SetChannelAttribute("DataRate", DataRateValue(DataRate("1000Mbps")));
+    switchCsma.SetChannelAttribute("Delay", TimeValue(MicroSeconds(10)));
 
-    NetDeviceContainer sw1WifiDev = wifi.Install(switchPhy, switchMac, sw1);
-    NetDeviceContainer sw2WifiDev = wifi.Install(switchPhy, switchMac, sw2);
-    NetDeviceContainer sw3WifiDev = wifi.Install(switchPhy, switchMac, sw3);
+    // sw1 <-> sw2
+    NetDeviceContainer sw1sw2 = switchCsma.Install(NodeContainer(sw1, sw2));
+    sw1Devsports.Add(sw1sw2.Get(0));
+    sw2Devsports.Add(sw1sw2.Get(1));
 
-    NetDeviceContainer switchWifiArray[3] = {sw1WifiDev, sw2WifiDev, sw3WifiDev};
-    Ptr<Node> switchNodeArray[3] = {sw1, sw2, sw3};
+    // sw2 <-> sw3
+    NetDeviceContainer sw2sw3 = switchCsma.Install(NodeContainer(sw2, sw3));
+    sw2Devsports.Add(sw2sw3.Get(0));
+    sw3Devsports.Add(sw2sw3.Get(1));
 
-    // 创建VirtualNetDevice作为OpenFlow端口（包装WiFi设备）
-    // VirtualNetDevice发送时 -> 通过WiFi设备发送
-    // WiFi设备接收时 -> 注入到VirtualNetDevice
-    NetDeviceContainer switchVirtualDevs;
-    for (uint32_t i = 0; i < 3; ++i)
-    {
-        Ptr<WifiNetDevice> wifiDev = DynamicCast<WifiNetDevice>(switchWifiArray[i].Get(0));
-        Ptr<Node> switchNode = switchNodeArray[i];
-        std::string switchName = (i == 0) ? "sw1" : ((i == 1) ? "sw2" : "sw3");
-        // 注册到 map
-        g_switchNameMap[wifiDev] = switchName;
-
-        // 创建VirtualNetDevice
-        Ptr<VirtualNetDevice> virtualDev = CreateObject<VirtualNetDevice>();
-        virtualDev->SetAddress(wifiDev->GetAddress());
-        virtualDev->SetSupportsSendFrom(true);
-        virtualDev->SetSendCallback(MakeCallback(&WifiNetDevice::SendFrom, wifiDev));
-
-        switchNode->AddDevice(virtualDev);
-        switchVirtualDevs.Add(virtualDev);
-
-        wifiDev->SetPromiscReceiveCallback(
-            MakeBoundCallback(&WifiToVirtualDevForward, virtualDev));
-    }
-
-    // 将VirtualNetDevice添加到交换机端口容器（而不是WiFi设备）
-    sw1Devsports.Add(switchVirtualDevs.Get(0)); // sw1的虚拟设备
-    sw2Devsports.Add(switchVirtualDevs.Get(1)); // sw2的虚拟设备
-    sw3Devsports.Add(switchVirtualDevs.Get(2)); // sw3的虚拟设备
+    // sw3 <-> sw1
+    NetDeviceContainer sw3sw1 = switchCsma.Install(NodeContainer(sw3, sw1));
+    sw3Devsports.Add(sw3sw1.Get(0));
+    sw1Devsports.Add(sw3sw1.Get(1));
 
     // A域
     Ptr<YansWifiChannel> channelA = channel.Create();
     YansWifiPhyHelper phyA;
     phyA.SetChannel(channelA);
+    // [改动2] 提升功率和增益
+    phyA.Set("TxPowerStart", DoubleValue(30.0));
+    phyA.Set("TxPowerEnd",   DoubleValue(30.0));
+    phyA.Set("TxGain",       DoubleValue(10.0));
+    phyA.Set("RxGain",       DoubleValue(10.0));
 
     Ssid ssidA = Ssid("A");
 
@@ -446,6 +418,11 @@ int main(int argc, char *argv[])
     Ptr<YansWifiChannel> backboneChannel = channel.Create(); // 独立信道
     YansWifiPhyHelper phyBackbone;
     phyBackbone.SetChannel(backboneChannel);
+    // [改动2] 提升功率和增益
+    phyBackbone.Set("TxPowerStart", DoubleValue(30.0));
+    phyBackbone.Set("TxPowerEnd",   DoubleValue(30.0));
+    phyBackbone.Set("TxGain",       DoubleValue(10.0));
+    phyBackbone.Set("RxGain",       DoubleValue(10.0));
 
     WifiMacHelper backboneMac;
     backboneMac.SetType("ns3::AdhocWifiMac");
@@ -455,6 +432,11 @@ int main(int argc, char *argv[])
     Ptr<YansWifiChannel> channelB = channel.Create();
     YansWifiPhyHelper phyB;
     phyB.SetChannel(channelB);
+    // [改动2] 提升功率和增益
+    phyB.Set("TxPowerStart", DoubleValue(30.0));
+    phyB.Set("TxPowerEnd",   DoubleValue(30.0));
+    phyB.Set("TxGain",       DoubleValue(10.0));
+    phyB.Set("RxGain",       DoubleValue(10.0));
 
     Ssid ssidB = Ssid("B");
 
@@ -470,6 +452,11 @@ int main(int argc, char *argv[])
     Ptr<YansWifiChannel> channelC = channel.Create();
     YansWifiPhyHelper phyC;
     phyC.SetChannel(channelC);
+    // [改动2] 提升功率和增益
+    phyC.Set("TxPowerStart", DoubleValue(30.0));
+    phyC.Set("TxPowerEnd",   DoubleValue(30.0));
+    phyC.Set("TxGain",       DoubleValue(10.0));
+    phyC.Set("RxGain",       DoubleValue(10.0));
 
     Ssid ssidC = Ssid("C");
 
@@ -698,19 +685,13 @@ int main(int argc, char *argv[])
     } // wifi 网络
 
     // 为switch虚拟接口分配IP地址（switch间无线互连网段）
-    // 注意：使用VirtualNetDevice而不是WiFi设备，因为VirtualNetDevice是OpenFlow端口
-    Ipv4InterfaceContainer switchWifiIfaces;
-    {
-        Ipv4AddressHelper switchIpHelper;
-        switchIpHelper.SetBase("10.10.1.0", "255.255.255.0");
-        switchWifiIfaces = switchIpHelper.Assign(switchVirtualDevs);
-    }
+    // [方案B] 交换机间改用CSMA有线，不再分配独立IP（OpenFlow层2转发，不需要sw间IP）
+    Ipv4InterfaceContainer switchWifiIfaces; // 保留变量名兼容后续代码，但不分配
 
-    // 打印switch虚拟接口信息
-    std::cout << "Switch Virtual Interfaces (WiFi-backed):" << std::endl;
-    std::cout << "  sw1: " << switchWifiIfaces.GetAddress(0) << std::endl;
-    std::cout << "  sw2: " << switchWifiIfaces.GetAddress(1) << std::endl;
-    std::cout << "  sw3: " << switchWifiIfaces.GetAddress(2) << std::endl;
+    // 打印switch互连信息
+    std::cout << "Switch Wired Interconnect (CSMA 1000Mbps):" << std::endl;
+    std::cout << "  sw1<->sw2, sw2<->sw3, sw3<->sw1" << std::endl;
+    // [方案B] switch间无IP，无需打印地址
     ;
 
     // 配置主机默认路由指向本域AP
@@ -795,10 +776,8 @@ int main(int argc, char *argv[])
         of13Helper->EnableDatapathStats("switch-stats");
 
         csma.EnablePcap("cmsac-switch", sw3Devsports);
-        // Switch WiFi接口抓包（switch间无线通信）
-        switchPhy.EnablePcap("switch111-wifi", sw1WifiDev);
-        switchPhy.EnablePcap("switch222-wifi", sw2WifiDev);
-        switchPhy.EnablePcap("switch333-wifi", sw3WifiDev);
+        // [方案B] 交换机间已改为CSMA有线，无需WiFi接口抓包
+        switchCsma.EnablePcap("switch-wired", sw1sw2);
 
         // A/B/C 域 AP 的 CSMA 接口抓包
         csma.EnablePcap("A_domain_ap", apCsmaDevsA);
@@ -823,7 +802,7 @@ int main(int argc, char *argv[])
 
     // --- Flow0: StaA[1] -> StaC[2] ---
     OnOffHelper onoff0("ns3::UdpSocketFactory", Address());
-    onoff0.SetAttribute("DataRate", StringValue("2Mbps")); // 原1Mbps
+    onoff0.SetAttribute("DataRate", StringValue("10Mbps")); // [改动1] 探测网络容量上限
     onoff0.SetAttribute("PacketSize", UintegerValue(1024));
     // 【新增这两行，干掉默认的间歇发包机制】
     onoff0.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
@@ -1042,12 +1021,12 @@ int main(int argc, char *argv[])
         controllerApp->AddArpEntry(apCIp, apCMac);
         std::cout << "注册ARP条目：ApC[0] 网关 " << apCIp << " -> " << apCMac << std::endl;
 
-        // 注册switch虚拟接口ARP条目（用于switch间无线通信）
-        // 注意：VirtualNetDevice使用WiFi设备的MAC地址
-        for (uint32_t i = 0; i < switchVirtualDevs.GetN(); ++i)
+        // [方案B] 交换机间改为CSMA有线，switch节点不参与IP层路由，跳过ARP注册
+        if (false) // 占位，保留原代码结构
+        for (uint32_t i = 0; i < 0; ++i)
         {
             Ipv4Address switchIp = switchWifiIfaces.GetAddress(i);
-            Mac48Address switchMac = Mac48Address::ConvertFrom(switchVirtualDevs.Get(i)->GetAddress());
+            Mac48Address switchMac;
             controllerApp->AddArpEntry(switchIp, switchMac);
             std::cout << "注册ARP条目：Switch[" << i << "] 虚拟接口 "
                       << switchIp << " -> " << switchMac << std::endl;
