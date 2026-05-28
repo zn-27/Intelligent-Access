@@ -232,6 +232,12 @@ public:
   void Changelogical(uint32_t op);
   void SendPosition();
   void CollectFlowStats();
+
+  /**
+   * 融合架构回退：在交换机自身节点上查找 SwitchProtocolInfoApp。
+   * 当 VirtualNetDevice 没有 Channel 导致原有通道发现失败时使用。
+   */
+  Ptr<class SwitchProtocolInfoApp> FindSwitchApp();
   /**
    * Called when a packet is received on one of the switch's ports. This method
    * will schedule the packet for OpenFlow pipeline.

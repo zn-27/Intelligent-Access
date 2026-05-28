@@ -11,6 +11,7 @@ def build(bld):
     # 2. 配置模块的源文件（.cc 实现文件）
     module.source = [
         'model/ap-protocol-info-app.cc',
+        'model/switch-protocol-info-app.cc',
     ]
 
     # 3. 用 ns3header 特性配置头文件（标准接口）
@@ -18,6 +19,7 @@ def build(bld):
     headers.module = 'ap-app'  # 绑定到当前模块
     headers.source = [
         'model/ap-protocol-info-app.h',  # 头文件路径
+        'model/switch-protocol-info-app.h',
     ]
     if bld.env['ENABLE_EXAMPLES']:
         bld.recurse('examples')

@@ -159,6 +159,9 @@ namespace ns3
         void SetPriorityToAll();
         void CDL();
 
+        // 配置交换机互联端口映射（由各拓扑脚本调用）
+        void SetSwitchPortMapping(uint64_t localDpid, uint64_t destDpid, uint32_t outputPort);
+
         // 根据交换机DPID获取其下所有主机信息
         std::vector<HostInfo> GetHostsBySwitch(uint64_t dpId) {
             auto it = m_switchHosts.find(dpId);

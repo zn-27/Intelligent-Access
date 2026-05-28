@@ -609,6 +609,15 @@ int main(int argc, char *argv[])
         controllerApp =
             DynamicCast<OFSwitch13LearningController>(get.Get(0));
 
+    // 配置交换机互联端口映射
+    // train4: sw1 有 2 个 CSMA 端口，骨干 WiFi VND 在 Port 3
+    controllerApp->SetSwitchPortMapping(1, 2, 3);  // sw1→sw2 走 port 3
+    controllerApp->SetSwitchPortMapping(1, 3, 3);  // sw1→sw3 走 port 3
+    controllerApp->SetSwitchPortMapping(2, 1, 2);  // sw2→sw1 走 port 2
+    controllerApp->SetSwitchPortMapping(2, 3, 2);  // sw2→sw3 走 port 2
+    controllerApp->SetSwitchPortMapping(3, 1, 2);  // sw3→sw1 走 port 2
+    controllerApp->SetSwitchPortMapping(3, 2, 2);  // sw3→sw2 走 port 2
+
     // --------------------------
     // 4. 网络栈配置部分
     // --------------------------

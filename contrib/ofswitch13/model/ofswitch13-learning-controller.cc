@@ -59,32 +59,8 @@ namespace ns3
         std::cout << "[动态阈值] 初始阈值: " << m_currentThroughputThreshold << " Kbps" << std::endl;
 
         m_currentMode = 0;
-        // ==================== 初始化交换机互联端口映射（仅硬编码端口连接关系）====================
-        // 交换机连接拓扑：
-        // sw1 (DPID:1) <--端口3--> sw2 (DPID:2)
-        // sw1 (DPID:1) <--端口4--> sw3 (DPID:3)
-        // sw2 (DPID:2) <--端口2--> sw1 (DPID:1)
-        // sw2 (DPID:2) <--端口3--> sw3 (DPID:3)
-        // sw3 (DPID:3) <--端口3--> sw1 (DPID:1)
-        // sw3 (DPID:3) <--端口2--> sw2 (DPID:2)
-
-        // // sw1的互联端口映射
-        m_switchPortMappings[0x0000000000000001] = {
-            {0x0000000000000002, 3}, // 到sw2，走端口3
-            {0x0000000000000003, 3}, // 到sw3，走端口4L2学习
-        };
-
-        // sw2的互联端口映射
-        m_switchPortMappings[0x0000000000000002] = {
-            {0x0000000000000001, 2}, // 到sw1，走端口2
-            {0x0000000000000003, 2}  // 到sw3，走端口3
-        };
-
-        // sw3的互联端口映射
-        m_switchPortMappings[0x0000000000000003] = {
-            {0x0000000000000001, 2}, // 到sw1，走端口3
-            {0x0000000000000002, 2}, // 到sw2，走端口2
-        };
+        // 端口映射不再硬编码，由各拓扑脚本通过 SetSwitchPortMapping() 配置
+        m_switchPortMappings.clear();
 
         NS_LOG_FUNCTION(this);
     }
@@ -137,7 +113,29 @@ namespace ns3
     OFSwitch13LearningController::CDL()
     {
         NS_LOG_FUNCTION(this);
-        ChangeDeviceLogical(1); // 1打开自组织模式，2... 3...
+        ChangeDeviceLogical(1); // 1打开自组织模式关闭apwifi，0关闭自组织模式打开apwifi，2... 3...
+    }
+
+    void
+    OFSwitch13LearningController::SetSwitchPortMapping(uint64_t localDpid, uint64_t destDpid, uint32_t outputPort)
+    {
+        auto it = m_switchPortMappings.find(localDpid);
+        if (it != m_switchPortMappings.end())
+        {
+            for (auto &mapping : it->second)
+            {
+                if (mapping.destSwitchDpid == destDpid)
+                {
+                    mapping.outputPort = outputPort;
+                    return;
+                }
+            }
+            it->second.push_back({destDpid, outputPort});
+        }
+        else
+        {
+            m_switchPortMappings[localDpid] = {{destDpid, outputPort}};
+        }
     }
 
     ofl_err
@@ -430,6 +428,8 @@ namespace ns3
                     }
                     else
                     {
+                        std::cout << "[PacketIn] L3 MISS for ip " << dstIp
+                                  << " on switch " << swDpId << " -> FLOOD" << std::endl;
                         NS_LOG_DEBUG("No L3 info for ip " << dstIp << ". Flood.");
                     }
                 }
@@ -558,9 +558,11 @@ namespace ns3
         // 添加到交换机主机列表
         m_switchHosts[dpId].push_back(host);
 
-        // std::cout << "交换机DPID(" << dpId << ") 域内主机信息：" << std::endl;
-        // std::cout << "  主机: IP=" << host.ip
-        //           << ", MAC=" << host.mac << ", 端口=" << host.port << std::endl;
+        // 添加到 ARP 表，确保跨域 ARP 解析可用
+        m_arpTable[host.ip] = host.mac;
+
+        std::cout << "[Stainfo] DPID=" << dpId << " IP=" << host.ip
+                  << " MAC=" << host.mac << " Port=" << host.port << std::endl;
 
         // 自动识别网段
         uint32_t ipHost = host.ip.Get();

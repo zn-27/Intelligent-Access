@@ -310,15 +310,9 @@ namespace ns3
   //用于修改无线域的节点优先级
   void
   OFSwitch13Controller:: SetRPtoAll()
-  { 
-    std::cout<<"准备发送 set0 报文到交换机..."<<std::endl;
+  {
+    std::cout<<"准备发送 set0 报文到所有交换机..."<<std::endl;
     NS_LOG_FUNCTION(this);
-
-    // 控制器发送到随机交换机.
-    //Ptr<const RemoteSwitch> swtch = GetRandomRemoteSwitch();
-    Ptr<const RemoteSwitch> swtch = GetRemoteSwitch(3);
-    NS_ASSERT(swtch != 0);
-    std::cout << "Sending set0 to switch: " << swtch->GetDpId() << std::endl;
 
     struct adhocl_ext_test msg;
 
@@ -333,19 +327,18 @@ namespace ns3
      msg.p3 = 10;    // STATIC
      msg.p4 = 0;     //可能的协议拓展
      msg.p5 = 0;     //可能的协议的拓展
-    // 获取唯一 XID
-     uint32_t xid = GetNextXid();
 
-     // 调用已有的发送接口
-     int ret = SendToSwitch(swtch, (struct ofl_msg_header *)&msg, xid);
-
-     if (ret != 0)
-     {
-        NS_LOG_ERROR("发送 set0 报文失败, switch " << swtch->GetDpId());
-     }
-     else
-      {   
-        NS_LOG_INFO("成功发送 set0 报文到 switch " << swtch->GetDpId());
+    // 发送到所有交换机
+    for (uint64_t dpid = 1; dpid <= 3; ++dpid)
+      {
+        Ptr<const RemoteSwitch> swtch = GetRemoteSwitch(dpid);
+        if (!swtch) continue;
+        uint32_t xid = GetNextXid();
+        int ret = SendToSwitch(swtch, (struct ofl_msg_header *)&msg, xid);
+        if (ret != 0)
+          NS_LOG_ERROR("发送 set0 报文失败, switch " << swtch->GetDpId());
+        else
+          std::cout << "成功发送 set0 报文到 switch " << swtch->GetDpId() << std::endl;
       }
 
   }

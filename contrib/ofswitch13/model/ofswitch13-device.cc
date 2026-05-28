@@ -448,6 +448,23 @@ namespace ns3
     return m_ports.at(no - 1);
   }
   //---------------------------自定义------------------------------
+  // 融合架构回退：在交换机自身节点上查找 SwitchProtocolInfoApp
+  Ptr<SwitchProtocolInfoApp>
+  OFSwitch13Device::FindSwitchApp()
+  {
+    if (m_ports.empty()) return nullptr;
+    Ptr<Node> switchNode = m_ports.at(0)->GetPortDevice()->GetNode();
+    if (!switchNode) return nullptr;
+
+    for (uint32_t i = 0; i < switchNode->GetNApplications(); i++)
+      {
+        Ptr<SwitchProtocolInfoApp> app =
+            DynamicCast<SwitchProtocolInfoApp>(switchNode->GetApplication(i));
+        if (app) return app;
+      }
+    return nullptr;
+  }
+
   void
   OFSwitch13Device::GetApStaMessages()
   {
@@ -553,12 +570,53 @@ namespace ns3
           }
           memset(&stainfo1, 0, sizeof(stainfo1));
         }
-        
+
+    }
+
+    // ============ 融合架构回退 ============
+    // VirtualNetDevice 没有 Channel，通道发现失败时，
+    // 检查交换机自身节点上是否有 SwitchProtocolInfoApp
+    {
+      Ptr<SwitchProtocolInfoApp> switchApp = FindSwitchApp();
+      if (switchApp)
+        {
+          std::cout << "[Fused] Found SwitchProtocolInfoApp on local switch node" << std::endl;
+          std::vector<stamessage> msgs = switchApp->GetStaMessages();
+          for (const auto& staMsg : msgs)
+            {
+              if (staMsg.ip_address == 0x00000000 || staMsg.mac_address == 0xFFFFFFFF)
+                {
+                  NS_LOG_WARN("STA has empty IP/MAC, skip sending.");
+                  continue;
+                }
+              struct adhocl_ext_stainfo stainfo1;
+              stainfo1.header.type = ADHOC_EXT_STAINFO ;
+              stainfo1.vendor = 0x12345;
+              stainfo1.subtype = 5001 ;
+              stainfo1.port_number = 1;  // AP VND 端口
+              stainfo1.ip_address = staMsg.ip_address;
+              stainfo1.mac_address = staMsg.mac_address;
+
+              Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&stainfo1, 0);
+              Ptr<RemoteController> remoteCtrl = nullptr;
+              if (!m_controllers.empty())
+                {
+                  remoteCtrl = m_controllers.back();
+                }
+              if (remoteCtrl)
+                {
+                  std::cout << "Stamessage is sending to controller (fused)." << std::endl;
+                  int re = SendToController(packet, remoteCtrl);
+                  std::cout << re << std::endl;
+                  NS_LOG_INFO("Sta Message sent to controller (fused).");
+                }
+              memset(&stainfo1, 0, sizeof(stainfo1));
+            }
+        }
     }
 
     return ;
   }
-  //自定义函数2：修改组网模式-------------------
   void
   OFSwitch13Device::Changelogical(uint32_t op)
   {
@@ -621,6 +679,49 @@ namespace ns3
         // 调用 AP 的 ChangeZuWang()
         std::cout<<"正在调用ap的函数"<<std::endl;
         apApp->ChangeZuWang(op);
+    }
+
+    // ============ 融合架构回退 ============
+    {
+      Ptr<SwitchProtocolInfoApp> switchApp = FindSwitchApp();
+      if (switchApp)
+        {
+          std::cout << "[Fused] Changelogical: Found SwitchProtocolInfoApp on local node" << std::endl;
+          switchApp->ChangeZuWang(op);
+
+          // 切换到 adhoc 模式后，上报 adhoc STA 信息给控制器
+          if (op == 1)
+            {
+              std::vector<stamessage> adhocMsgs = switchApp->GetAdhocStaMessages();
+              for (const auto &staMsg : adhocMsgs)
+                {
+                  if (staMsg.ip_address == 0x00000000)
+                    {
+                      NS_LOG_WARN("Adhoc STA has empty IP, skip sending.");
+                      continue;
+                    }
+                  struct adhocl_ext_stainfo stainfo1;
+                  stainfo1.header.type = ADHOC_EXT_STAINFO;
+                  stainfo1.vendor = 0x12345;
+                  stainfo1.subtype = 5001;
+                  stainfo1.port_number = 3;  // Emergency VND 端口
+                  stainfo1.ip_address = staMsg.ip_address;
+                  stainfo1.mac_address = staMsg.mac_address;
+
+                  Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&stainfo1, 0);
+                  Ptr<RemoteController> remoteCtrl = nullptr;
+                  if (!m_controllers.empty())
+                    remoteCtrl = m_controllers.back();
+                  if (remoteCtrl)
+                    {
+                      std::cout << "[Fused] Sending adhoc STA info: IP="
+                                << Ipv4Address(staMsg.ip_address) << " port=3" << std::endl;
+                      SendToController(packet, remoteCtrl);
+                    }
+                  memset(&stainfo1, 0, sizeof(stainfo1));
+                }
+            }
+        }
     }
   }
   //------------------------自定义函数3:周期性发送节点的位置信息--------------------------------
@@ -728,84 +829,116 @@ namespace ns3
         
     }
 
-  }
-
-void
-OFSwitch13Device::CollectFlowStats()
-{ 
-    NS_LOG_FUNCTION(this);
-    if (m_controllers.empty()) return;
-    Ptr<RemoteController> remoteCtrl = m_controllers.back();
-
-    // 遍历交换机所有端口，寻找连接的 AP 节点
-    for (auto const &p : m_ports)
+    // ============ 融合架构回退 ============
     {
-        Ptr<NetDevice> swPortDev = p->GetPortDevice();
-        Ptr<Channel> ch = swPortDev->GetChannel();
-        
-        // 只处理点对点连接
-        if (!ch || ch->GetNDevices() != 2) continue;
-
-        Ptr<Node> otherNode = nullptr;
-        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+      Ptr<SwitchProtocolInfoApp> switchApp = FindSwitchApp();
+      if (switchApp)
         {
-            Ptr<NetDevice> dev = ch->GetDevice(i);
-            if (dev != swPortDev)
+          std::cout << "[Fused] SendPosition: Found SwitchProtocolInfoApp on local node" << std::endl;
+          std::vector<Position> msgs = switchApp->SendNodePosition();
+          for (const auto& staPos : msgs)
             {
-                otherNode = dev->GetNode();
-                break;
-            }
-        }
-
-        if (!otherNode) continue;
-
-        // 寻找 AP 节点上挂载的统计应用
-        Ptr<ApProtocolInfoApp> apApp = nullptr;
-        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++) {
-            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
-            if (apApp) break;
-        }
-
-        if (!apApp) continue;
-
-        // 获取增量流量数据 (包含吞吐量、延迟、抖动、丢包)
-        std::vector<FlowStatsRecord> flowStats = apApp->CollectFlowStats();
-
-        for (const auto& flow : flowStats) 
-        {
-            // 使用全新的 37 号消息结构体 (ADHOC_EXT_FLOW_STATUS_REPORT)
-            struct adhocl_ext_flow_status_report rep; 
-            memset(&rep, 0, sizeof(rep));
-
-            // 填充 OpenFlow 实验者消息头
-            rep.header.type = ADHOC_EXT_FLOW_STATUS_REPORT; // 应该是 37
-            rep.vendor = 0x12345678;
-
-            // 填充多维统计数据
-            rep.port = flow.port;
-            rep.throughput = flow.throughputKbps;
-            rep.delay = flow.delayMs;
-            rep.jitter = flow.jitterMs;
-            rep.loss_rate = flow.lossRate;
-
-            // 转换成 NS-3 Packet 并发送给控制器
-            Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
-            
-            if (packet != nullptr) 
-            {
-                // std::cout << "[Switch] 上报链路流状态: Port=" << flow.port 
-                //           << " Thr=" << flow.throughputKbps << "Kbps"
-                //           << " Loss=" << (flow.lossRate / 100.0) << "%"
-                //           << " Delay=" << flow.delayMs << "ms" << std::endl;
-                
-                SendToController(packet, remoteCtrl);
+              if (staPos.ip_ad == 0x00000000)
+                {
+                  NS_LOG_WARN("STA has empty IP, skip sending.");
+                  continue;
+                }
+              struct adhocl_ext_node_status_report rep;
+              rep.header.type = ADHOC_EXT_NODE_STATUS_REPORT ;
+              rep.vendor = 0x12345678;
+              rep.subtype = 8001 ;
+              rep.ip_address = staPos.ip_ad;
+              rep.x = staPos.x;
+              rep.y = staPos.y;
+              rep.z = staPos.z;
+              Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+              Ptr<RemoteController> remoteCtrl = nullptr;
+              if (!m_controllers.empty())
+                {
+                  remoteCtrl = m_controllers.back();
+                }
+              if (remoteCtrl)
+                {
+                  std::cout << "Sta Position is sending to controller (fused)." << std::endl;
+                  int re = SendToController(packet, remoteCtrl);
+                  std::cout << re << std::endl;
+                }
+              memset(&rep, 0, sizeof(rep));
             }
         }
     }
-}
+
+  }
+// Old CollectFlowStats (commented out backup):
+// {
+//     NS_LOG_FUNCTION(this);
+//     if (m_controllers.empty()) return;
+//     Ptr<RemoteController> remoteCtrl = m_controllers.back();
+//
+//     // 遍历交换机所有端口，寻找连接的 AP 节点
+//     for (auto const &p : m_ports)
+//     {
+//         Ptr<NetDevice> swPortDev = p->GetPortDevice();
+//         Ptr<Channel> ch = swPortDev->GetChannel();
+//
+//         // 只处理点对点连接
+//         if (!ch || ch->GetNDevices() != 2) continue;
+//
+//         Ptr<Node> otherNode = nullptr;
+//         for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+//         {
+//             Ptr<NetDevice> dev = ch->GetDevice(i);
+//             if (dev != swPortDev)
+//             {
+//                 otherNode = dev->GetNode();
+//                 break;
+//             }
+//         }
+//
+//         if (!otherNode) continue;
+//
+//         // 寻找 AP 节点上挂载的统计应用
+//         Ptr<ApProtocolInfoApp> apApp = nullptr;
+//         for (uint32_t i = 0; i < otherNode->GetNApplications(); i++) {
+//             apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+//             if (apApp) break;
+//         }
+//
+//         if (!apApp) continue;
+//
+//         // 获取增量流量数据 (包含吞吐量、延迟、抖动、丢包)
+//         std::vector<FlowStatsRecord> flowStats = apApp->CollectFlowStats();
+//
+//         for (const auto& flow : flowStats)
+//         {
+//             // 使用全新的 37 号消息结构体 (ADHOC_EXT_FLOW_STATUS_REPORT)
+//             struct adhocl_ext_flow_status_report rep;
+//             memset(&rep, 0, sizeof(rep));
+//
+//             // 填充 OpenFlow 实验者消息头
+//             rep.header.type = ADHOC_EXT_FLOW_STATUS_REPORT; // 应该是 37
+//             rep.vendor = 0x12345678;
+//
+//             // 填充多维统计数据
+//             rep.port = flow.port;
+//             rep.throughput = flow.throughputKbps;
+//             rep.delay = flow.delayMs;
+//             rep.jitter = flow.jitterMs;
+//             rep.loss_rate = flow.lossRate;
+//
+//             // 转换成 NS-3 Packet 并发送给控制器
+//             Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+//
+//             if (packet != nullptr)
+//             {
+//                 SendToController(packet, remoteCtrl);
+//             }
+//         }
+//     }
+// }
 // void
 // OFSwitch13Device::CollectFlowStats()
-// { 
+// {
 //     NS_LOG_FUNCTION(this);
 //     if (m_controllers.empty()) return;
 //     Ptr<RemoteController> remoteCtrl = m_controllers.back();
@@ -878,9 +1011,98 @@ OFSwitch13Device::CollectFlowStats()
 //     }
 // }
 
+// ======================== CollectFlowStats (active) ========================
+void
+OFSwitch13Device::CollectFlowStats()
+{
+    NS_LOG_FUNCTION(this);
+    if (m_controllers.empty()) return;
+    Ptr<RemoteController> remoteCtrl = m_controllers.back();
 
+    // 遍历交换机所有端口，寻找连接的 AP 节点
+    for (auto const &p : m_ports)
+    {
+        Ptr<NetDevice> swPortDev = p->GetPortDevice();
+        Ptr<Channel> ch = swPortDev->GetChannel();
 
+        // 只处理点对点连接
+        if (!ch || ch->GetNDevices() != 2) continue;
 
+        Ptr<Node> otherNode = nullptr;
+        for (uint32_t i = 0; i < ch->GetNDevices(); i++)
+        {
+            Ptr<NetDevice> dev = ch->GetDevice(i);
+            if (dev != swPortDev)
+            {
+                otherNode = dev->GetNode();
+                break;
+            }
+        }
+
+        if (!otherNode) continue;
+
+        // 寻找 AP 节点上挂载的统计应用
+        Ptr<ApProtocolInfoApp> apApp = nullptr;
+        for (uint32_t i = 0; i < otherNode->GetNApplications(); i++) {
+            apApp = DynamicCast<ApProtocolInfoApp>(otherNode->GetApplication(i));
+            if (apApp) break;
+        }
+
+        if (!apApp) continue;
+
+        // 获取增量流量数据 (包含吞吐量、延迟、抖动、丢包)
+        std::vector<FlowStatsRecord> flowStats = apApp->CollectFlowStats();
+
+        for (const auto& flow : flowStats)
+        {
+            struct adhocl_ext_flow_status_report rep;
+            memset(&rep, 0, sizeof(rep));
+
+            rep.header.type = ADHOC_EXT_FLOW_STATUS_REPORT;
+            rep.vendor = 0x12345678;
+            rep.port = flow.port;
+            rep.throughput = flow.throughputKbps;
+            rep.delay = flow.delayMs;
+            rep.jitter = flow.jitterMs;
+            rep.loss_rate = flow.lossRate;
+
+            Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+
+            if (packet != nullptr)
+            {
+                SendToController(packet, remoteCtrl);
+            }
+        }
+    }
+
+    // ============ 融合架构回退 ============
+    {
+      Ptr<SwitchProtocolInfoApp> switchApp = FindSwitchApp();
+      if (switchApp)
+        {
+          std::cout << "[Fused] CollectFlowStats: Found SwitchProtocolInfoApp on local node" << std::endl;
+          std::vector<FlowStatsRecord> flowStats = switchApp->CollectFlowStats();
+          for (const auto& flow : flowStats)
+            {
+              struct adhocl_ext_flow_status_report rep;
+              memset(&rep, 0, sizeof(rep));
+              rep.header.type = ADHOC_EXT_FLOW_STATUS_REPORT;
+              rep.vendor = 0x12345678;
+              rep.port = flow.port;
+              rep.throughput = flow.throughputKbps;
+              rep.delay = flow.delayMs;
+              rep.jitter = flow.jitterMs;
+              rep.loss_rate = flow.lossRate;
+
+              Ptr<Packet> packet = ofs::PacketFromMsg((struct ofl_msg_header *)&rep, 0);
+              if (packet != nullptr)
+                {
+                  SendToController(packet, remoteCtrl);
+                }
+            }
+        }
+    }
+}
   void
   OFSwitch13Device::ReceiveFromSwitchPort(Ptr<Packet> packet, uint32_t portNo,
                                           uint64_t tunnelId)
@@ -1590,8 +1812,20 @@ OFSwitch13Device::CollectFlowStats()
                 }
             }
          }
-      
+
       }
+
+      // ============ 融合架构回退 ============
+      // VirtualNetDevice 没有 CsmaChannel，通过 SwitchProtocolInfoApp 直接更新 STA 路由优先级
+      {
+        Ptr<SwitchProtocolInfoApp> switchApp = FindSwitchApp();
+        if (switchApp)
+          {
+            std::cout << "[Fused] ADHOC_EXT_TEST: Found SwitchProtocolInfoApp, updating STA priorities" << std::endl;
+            switchApp->UpdateStaRoutingPriority(p1, p2, p3);
+          }
+      }
+
       return;
     }
     //----------adhoc切换分支-------------
