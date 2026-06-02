@@ -593,7 +593,7 @@ namespace ns3
               stainfo1.header.type = ADHOC_EXT_STAINFO ;
               stainfo1.vendor = 0x12345;
               stainfo1.subtype = 5001 ;
-              stainfo1.port_number = 1;  // AP VND 端口
+              stainfo1.port_number = switchApp->GetApPortNo();  // AP 或 Ad-Hoc VND 端口
               stainfo1.ip_address = staMsg.ip_address;
               stainfo1.mac_address = staMsg.mac_address;
 

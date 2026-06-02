@@ -18,6 +18,8 @@
 #include "ns3/adhoc-wifi-mac.h"
 #include "ns3/mobility-model.h"
 #include "ns3/ipv4-flow-classifier.h"
+#include "ns3/net-device-container.h"
+#include "ns3/wifi-net-device.h"
 
 namespace ns3 {
 
@@ -53,6 +55,13 @@ public:
   // 组网模式切换
   void ChangeZuWang(uint32_t op);
 
+  // Ad-Hoc 邻居发现支持
+  void SetAdhocMac(Ptr<AdhocWifiMac> adhocMac);
+  void SetAdhocPortNo(uint32_t portNo);
+  void SetAdhocChannelDevices(NetDeviceContainer staDevs);
+  void SetInitialAdhocMode(bool isAdhoc);
+  void CollectAdhocNeighbors();
+
   // 节点位置收集
   std::vector<Position> SendNodePosition();
 
@@ -71,6 +80,12 @@ private:
   uint32_t m_apPortNo;
   std::vector<stamessage> m_staMessages;
   std::vector<stamessage> m_adhocStaMessages;
+
+  // Ad-Hoc 邻居发现
+  Ptr<AdhocWifiMac> m_adhocMac;
+  uint32_t m_adhocPortNo;
+  NetDeviceContainer m_adhocStaDevs;
+  bool m_isAdhocMode;
 
   // FlowMonitor
   Ptr<FlowMonitor> m_monitor;

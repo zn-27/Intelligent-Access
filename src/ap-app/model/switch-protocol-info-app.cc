@@ -24,6 +24,9 @@ SwitchProtocolInfoApp::GetTypeId(void)
 SwitchProtocolInfoApp::SwitchProtocolInfoApp()
   : m_apMac(nullptr),
     m_apPortNo(0),
+    m_adhocMac(nullptr),
+    m_adhocPortNo(0),
+    m_isAdhocMode(false),
     m_monitor(nullptr),
     m_classifier(nullptr),
     m_lastSampleTime(0.0)
@@ -33,6 +36,11 @@ SwitchProtocolInfoApp::~SwitchProtocolInfoApp() {}
 
 void SwitchProtocolInfoApp::StartApplication()
 {
+  if (m_isAdhocMode)
+    {
+      std::cout << "[SwitchApp] 初始 Ad-Hoc 模式启动 (port="
+                << m_adhocPortNo << ")" << std::endl;
+    }
   NS_LOG_INFO("SwitchProtocolInfoApp started on fused switch node");
 }
 
@@ -56,6 +64,9 @@ SwitchProtocolInfoApp::SetApPortNo(uint32_t portNo)
 uint32_t
 SwitchProtocolInfoApp::GetApPortNo() const
 {
+  // Ad-Hoc 模式下返回 Ad-Hoc 端口号，否则返回 AP 端口号
+  if (m_isAdhocMode)
+    return m_adhocPortNo;
   return m_apPortNo;
 }
 
@@ -137,12 +148,24 @@ SwitchProtocolInfoApp::CollectStaMassage()
 std::vector<stamessage>&
 SwitchProtocolInfoApp::GetStaMessages()
 {
-  CollectStaMassage();
-  if (m_staMessages.empty())
+  if (m_isAdhocMode)
     {
-      std::cout << "[SwitchApp] m_staMessages is empty!" << std::endl;
+      CollectAdhocNeighbors();
+      if (m_adhocStaMessages.empty())
+        {
+          std::cout << "[SwitchApp] m_adhocStaMessages is empty!" << std::endl;
+        }
+      return m_adhocStaMessages;
     }
-  return m_staMessages;
+  else
+    {
+      CollectStaMassage();
+      if (m_staMessages.empty())
+        {
+          std::cout << "[SwitchApp] m_staMessages is empty!" << std::endl;
+        }
+      return m_staMessages;
+    }
 }
 
 // ============================================================
@@ -321,6 +344,12 @@ SwitchProtocolInfoApp::ChangeZuWang(uint32_t op)
   std::cout << "\n[SwitchApp] ====== Switch STA Network Mode, op="
             << op << " ======" << std::endl;
 
+  // 更新模式标志
+  if (op == 1)
+    m_isAdhocMode = true;
+  else if (op == 0)
+    m_isAdhocMode = false;
+
   if (!m_apMac) return;
 
   if (op == 1)
@@ -405,6 +434,73 @@ std::vector<stamessage>&
 SwitchProtocolInfoApp::GetAdhocStaMessages()
 {
   return m_adhocStaMessages;
+}
+
+// ============================================================
+// Ad-Hoc 邻居发现：Setter 方法
+// ============================================================
+void
+SwitchProtocolInfoApp::SetAdhocMac(Ptr<AdhocWifiMac> adhocMac)
+{
+  m_adhocMac = adhocMac;
+}
+
+void
+SwitchProtocolInfoApp::SetAdhocPortNo(uint32_t portNo)
+{
+  m_adhocPortNo = portNo;
+}
+
+void
+SwitchProtocolInfoApp::SetAdhocChannelDevices(NetDeviceContainer staDevs)
+{
+  m_adhocStaDevs = staDevs;
+}
+
+void
+SwitchProtocolInfoApp::SetInitialAdhocMode(bool isAdhoc)
+{
+  m_isAdhocMode = isAdhoc;
+}
+
+// ============================================================
+// Ad-Hoc 邻居发现：收集域内 Ad-Hoc 邻居的 MAC/IP
+// ============================================================
+void
+SwitchProtocolInfoApp::CollectAdhocNeighbors()
+{
+  std::cout << "[SwitchApp] CollectAdhocNeighbors()" << std::endl;
+  m_adhocStaMessages.clear();
+
+  for (uint32_t i = 0; i < m_adhocStaDevs.GetN(); ++i)
+    {
+      Ptr<WifiNetDevice> wdev = DynamicCast<WifiNetDevice>(m_adhocStaDevs.Get(i));
+      if (!wdev) continue;
+
+      Mac48Address staMac = Mac48Address::ConvertFrom(wdev->GetAddress());
+      Ptr<Node> staNode = wdev->GetNode();
+      if (!staNode) continue;
+
+      Ptr<Ipv4> ipv4 = staNode->GetObject<Ipv4>();
+      if (!ipv4) continue;
+
+      uint32_t ifIdx = ipv4->GetInterfaceForDevice(wdev);
+      if (ifIdx == uint32_t(-1)) continue;
+
+      if (ipv4->GetNAddresses(ifIdx) > 0)
+        {
+          Ipv4Address ip = ipv4->GetAddress(ifIdx, 0).GetLocal();
+          stamessage sm;
+          sm.mac_address = staMac.ConvertToU64();
+          sm.ip_address  = ip.Get();
+          m_adhocStaMessages.push_back(sm);
+          std::cout << "[SwitchApp] Ad-Hoc neighbor: MAC=" << staMac
+                    << " IP=" << ip << std::endl;
+        }
+    }
+
+  std::cout << "[SwitchApp] Collected " << m_adhocStaMessages.size()
+            << " Ad-Hoc neighbors." << std::endl;
 }
 
 // ============================================================

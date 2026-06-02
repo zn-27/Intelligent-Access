@@ -167,6 +167,27 @@ void MonitorFlow(Ptr<FlowMonitor> monitor, FlowMonitorHelper *flowHelper, double
     Simulator::Schedule(Seconds(interval), &MonitorFlow, monitor, flowHelper, interval, fout);
 }
 
+// ---------------------------------------------------------
+// 域 C Ad-Hoc 邻居发现 + ARP 注入回调
+// ---------------------------------------------------------
+void InjectAdhocNeighbors(Ptr<SwitchProtocolInfoApp> sw3App,
+                           Ptr<OFSwitch13LearningController> controllerApp)
+{
+    sw3App->CollectAdhocNeighbors();
+    auto& msgs = sw3App->GetStaMessages();
+    for (const auto& sm : msgs)
+    {
+        uint8_t buf[6];
+        for (int k = 0; k < 6; k++)
+            buf[k] = (sm.mac_address >> (40 - 8*k)) & 0xFF;
+        Mac48Address mac;
+        mac.CopyFrom(buf);
+        Ipv4Address ip(sm.ip_address);
+        controllerApp->AddArpEntry(ip, mac);
+        std::cout << "[C-Adhoc] ARP注入: " << ip << " -> " << mac << std::endl;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     uint16_t simTime = 30;
@@ -551,30 +572,70 @@ int main(int argc, char *argv[])
         sr->SetDefaultRoute(apBGateway, 1);
     }
 
-    Ipv4Address apCGateway = ifApC.GetAddress(0);
+    // 域 C STA 默认路由 → sw3 的 Ad-Hoc VND 网关（初始无中心模式）
+    Ipv4Address emCGateway = emIfacesC.GetAddress(0);  // sw3 emVnd 的 IP
     for (uint32_t i = 0; i < StaC.GetN(); ++i)
     {
         Ptr<Ipv4> ipv4h = StaC.Get(i)->GetObject<Ipv4>();
         Ptr<Ipv4StaticRouting> sr = staticRoutingHelper.GetStaticRouting(ipv4h);
-        sr->SetDefaultRoute(apCGateway, 1);
+        // 动态找到 Ad-Hoc 设备的接口索引
+        for (uint32_t d = 0; d < StaC.Get(i)->GetNDevices(); d++)
+        {
+            Ptr<WifiNetDevice> wdev = DynamicCast<WifiNetDevice>(StaC.Get(i)->GetDevice(d));
+            if (wdev && DynamicCast<AdhocWifiMac>(wdev->GetMac()))
+            {
+                uint32_t ifIdx = ipv4h->GetInterfaceForDevice(wdev);
+                sr->SetDefaultRoute(emCGateway, ifIdx);
+                std::cout << "[Route] StaC[" << i << "] default -> " << emCGateway
+                          << " via ifIdx=" << ifIdx << std::endl;
+                break;
+            }
+        }
     }
 
-    // 默认关闭 STA 的紧急 Adhoc 接口
+    // 域 A/B：禁用 STA 的 Ad-Hoc 接口（有中心模式）
+    // 域 C：启用 Ad-Hoc 接口，禁用 StaWifiMac（初始无中心模式）
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i)
     {
-        // 紧急 Adhoc 设备在 STA 上是第 3 个设备 (loopback + StaWifi + AdhocEm)
-        // 但需要通过 VND 接口索引来控制，这里先找到 adhoc 设备
         Ptr<Node> node = wifiStaNodes.Get(i);
-        // STA 上的 adhoc 设备索引需要动态查找
+
+        // 判断是否属于域 C
+        bool isDomainC = false;
+        for (uint32_t j = 0; j < StaC.GetN(); ++j)
+        {
+            if (node == StaC.Get(j)) { isDomainC = true; break; }
+        }
+
         for (uint32_t d = 0; d < node->GetNDevices(); d++)
         {
             Ptr<WifiNetDevice> wdev = DynamicCast<WifiNetDevice>(node->GetDevice(d));
-            if (wdev && DynamicCast<AdhocWifiMac>(wdev->GetMac()))
+            if (!wdev) continue;
+
+            Ptr<Ipv4> ipv4Dev = node->GetObject<Ipv4>();
+            uint32_t ifIdx = ipv4Dev->GetInterfaceForDevice(wdev);
+            if (ifIdx == uint32_t(-1)) continue;
+
+            if (isDomainC)
             {
-                Ptr<Ipv4> ipv4Dev = node->GetObject<Ipv4>();
-                uint32_t ifIdx = ipv4Dev->GetInterfaceForDevice(wdev);
-                if (ifIdx != uint32_t(-1))
+                // 域 C：Ad-Hoc UP，StaWifiMac DOWN
+                if (DynamicCast<AdhocWifiMac>(wdev->GetMac()))
+                {
+                    ipv4Dev->SetUp(ifIdx);
+                    std::cout << "[Init] StaC node Ad-Hoc UP (ifIdx=" << ifIdx << ")" << std::endl;
+                }
+                else if (DynamicCast<StaWifiMac>(wdev->GetMac()))
+                {
                     ipv4Dev->SetDown(ifIdx);
+                    std::cout << "[Init] StaC node StaWifiMac DOWN (ifIdx=" << ifIdx << ")" << std::endl;
+                }
+            }
+            else
+            {
+                // 域 A/B：Ad-Hoc DOWN（原逻辑）
+                if (DynamicCast<AdhocWifiMac>(wdev->GetMac()))
+                {
+                    ipv4Dev->SetDown(ifIdx);
+                }
             }
         }
     }
@@ -679,6 +740,16 @@ int main(int argc, char *argv[])
     Ptr<SwitchProtocolInfoApp> sw3App = installSwitchApp(sw3,
         DynamicCast<WifiNetDevice>(apWifiDevsC.Get(0)), 1);
 
+    // sw3 额外配置：Ad-Hoc 邻居发现（域 C 初始无中心模式）
+    sw3App->SetAdhocMac(DynamicCast<AdhocWifiMac>(
+        DynamicCast<WifiNetDevice>(sw3EmDev.Get(0))->GetMac()));
+    sw3App->SetAdhocPortNo(3);  // Port 3 = 域内 Ad-Hoc VND
+    sw3App->SetAdhocChannelDevices(staEmDevsC);
+    sw3App->SetInitialAdhocMode(true);
+
+    // t=2s：域 C 邻居发现 + ARP 直接注入控制器
+    Simulator::Schedule(Seconds(2.0), &InjectAdhocNeighbors, sw3App, controllerApp);
+
     } // end if (controllerApp != nullptr)
 
     // =========================================================
@@ -722,15 +793,11 @@ int main(int argc, char *argv[])
     // 16b. 组网模式切换与路由优先级切换调度
     // =========================================================
 
-    // --- 组网模式切换演示 ---
-    // 12s: 切换到 AdHoc 自组网模式（开启 STA 的 Adhoc 接口）
-    //      CDL -> ChangeDeviceLogical(1) -> 控制器发送 Experimenter 消息到 sw3
-    //      sw3 收到后调用 SwitchProtocolInfoApp::ChangeZuWang(1) 启用 STA Adhoc
-    Simulator::Schedule(Seconds(10.0), &OFSwitch13LearningController::CDL, controllerApp);
-
-    // 20s: 直接通过 sw3 设备切回基础设施模式（关闭 STA 的 Adhoc 接口）
-    //if (sw3Device)
-        //Simulator::Schedule(Seconds(20.0), &OFSwitch13Device::Changelogical, sw3Device, 0);
+    // --- 组网模式切换 ---
+    // 域 C 初始已是 Ad-Hoc 模式，无需 CDL 切换
+    // 保留切回基础设施模式的调度（需要时取消注释）：
+    // if (sw3Device)
+    //     Simulator::Schedule(Seconds(20.0), &OFSwitch13Device::Changelogical, sw3Device, 0);
 
     // --- 路由协议优先级切换演示 ---
     // 13s: 通过控制器向 sw3 发送优先级设置消息
@@ -819,8 +886,9 @@ int main(int argc, char *argv[])
     //onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(ifStaC.GetAddress(2), basePort)));
     //onoff.Install(StaA.Get(0));
 
-    // Flow 2: A→C  StaA[0] (10.1.1.1) → StaC[2] adhoc (10.100.3.4)  port 13（模式切换后启动）
-    onoff.SetAttribute("StartTime", TimeValue(Seconds(14)));
+    // Flow 2: A→C  StaA[0] (10.1.1.1) → StaC[2] adhoc (10.100.3.4)  port 13
+    // 域 C 初始即为 Ad-Hoc 模式，无需等待模式切换，提前启动
+    onoff.SetAttribute("StartTime", TimeValue(Seconds(10.0)));
     onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(emIfacesC.GetAddress(3), basePort + 4)));
     onoff.Install(StaA.Get(0));
 
