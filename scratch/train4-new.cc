@@ -211,7 +211,7 @@ PrintMobileNodeStatus(Ptr<Node> node, Ptr<BlindConnectApp> app)
 
 int main(int argc, char *argv[])
 {
-    uint16_t simTime = 30;
+    uint16_t simTime = 60;
     bool verbose = true;
     bool trace = false;
 
@@ -758,8 +758,8 @@ int main(int argc, char *argv[])
         mobMobile.Install(mobileNode);
         Ptr<ConstantVelocityMobilityModel> cvmm =
             mobileNode.Get(0)->GetObject<ConstantVelocityMobilityModel>();
-        cvmm->SetVelocity(Vector(15.0, 0.0, 0.0));  // 向右 15 m/s
-        std::cout << "[Mobile] 初始位置: (-250, 200), 速度: (15, 0, 0)" << std::endl;
+        cvmm->SetVelocity(Vector(8.0, 0.0, 0.0));  // 向右 8 m/s，确保在各域有充足驻留时间
+        std::cout << "[Mobile] 初始位置: (-250, 200), 速度: (8, 0, 0)" << std::endl;
     }
 
     // =========================================================
@@ -819,7 +819,7 @@ int main(int argc, char *argv[])
         app->SetApPortNo(portNo);
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
-        app->SetStopTime(Seconds(30.0));
+        app->SetStopTime(Seconds(60.0));
         return app;
     };
 
@@ -861,7 +861,7 @@ int main(int argc, char *argv[])
         });
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(30.0));
+        app->SetStopTime(Seconds(60.0));
         return app;
     };
 
@@ -887,7 +887,7 @@ int main(int argc, char *argv[])
         });
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(30.0));
+        app->SetStopTime(Seconds(60.0));
         return app;
     };
 
@@ -919,7 +919,7 @@ int main(int argc, char *argv[])
     mobileApp->SetSocketAdhocDevice(mobileEmDev.Get(0));
     mobileNode.Get(0)->AddApplication(mobileApp);
     mobileApp->SetStartTime(Seconds(1.5));
-    mobileApp->SetStopTime(Seconds(30.0));
+    mobileApp->SetStopTime(Seconds(60.0));
 
     // 注册 Adhoc 域信道映射（SSID → YansWifiChannel），用于 ExecuteSwitch 动态切换
     mobileApp->RegisterAdhocChannel("Adhoc-Net", domainChC);

@@ -125,7 +125,7 @@ void BlindConnectApp::StartApplication() {
         m_staDevice->GetPhy()->TraceConnectWithoutContext(
             "MonitorSnifferRx", MakeCallback(&BlindConnectApp::ReceiveStaBeacon, this));
         SwitchToNextChannel();
-        ScheduleEvaluate();
+        m_evalEvent = Simulator::Schedule(Seconds(3.0), &BlindConnectApp::EvaluateAndSwitch, this);
     }
 
     // --- Adhoc 监听 (Gateway / Backbone) ---
@@ -257,7 +257,7 @@ void BlindConnectApp::SendPseudoBeacon() {
 
     uint32_t activeNodes = m_neighborTable.size() + 1;
     double totalLoad = 0.0, minEnergy = 1.0;
-    double myLoad = 0.35, myEnergy = 0.85;
+    double myLoad = 0.35, myEnergy = 1.0;
     for (const auto& entry : m_neighborTable) {
         totalLoad += entry.second.load;
         if (entry.second.energy < minEnergy) minEnergy = entry.second.energy;
@@ -704,10 +704,10 @@ double BlindConnectApp::CalculateScore(const ScannedNodeInfo& node) {
     double rssiNorm = (rssi + 90.0) / 60.0;
     double hopsNorm = std::min(node.hopsToGw, 5u) / 5.0;
     double load = node.load;
-    double energy = (node.type == ScannedNodeInfo::TYPE_AP) ? 1.0 : node.minEnergy;
+    double energy = node.minEnergy;
     double secBonus = node.secure ? 0.1 : 0.0;
 
-    double wRssi = 0.35, wHops = 0.15, wLoad = 0.0, wEnergy = 0.20, wSec = 0.30;
+    double wRssi = 0.50, wHops = 0.15, wLoad = 0.0, wEnergy = 0.25, wSec = 0.10;
     return wRssi * rssiNorm
            - wHops * hopsNorm
            - wLoad * load
