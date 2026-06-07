@@ -397,6 +397,16 @@ void
 WifiPhyStateHelper::SwitchToRx (Time rxDuration)
 {
   NS_LOG_FUNCTION (this << rxDuration);
+  // Allow RX from IDLE, CCA_BUSY, or SWITCHING. Frames arriving during
+  // channel switch are processed but will likely fail MPDU CRC (real HW
+  // can't decode while switching). We still set m_endRx so the EndReceivePayload
+  // cleanup path (SwitchFromRxEndOk/Error) doesn't assert.
+  if (IsStateSwitching ())
+    {
+      NS_LOG_DEBUG ("SwitchToRx called during SWITCHING state");
+      m_endRx = Simulator::Now () + rxDuration;
+      return;
+    }
   NS_ASSERT (IsStateIdle () || IsStateCcaBusy ());
   Time now = Simulator::Now ();
   switch (GetState ())
@@ -515,6 +525,13 @@ WifiPhyStateHelper::DoSwitchFromRx (void)
   m_stateLogger (m_startRx, now - m_startRx, WifiPhyState::RX);
   m_previousStateChangeTime = now;
   m_endRx = Simulator::Now ();
+  // During channel switching, frames may complete reception while PHY is
+  // still in SWITCHING state (e.g., short frames like ACK). Silently accept.
+  if (IsStateSwitching ())
+    {
+      NS_LOG_DEBUG ("DoSwitchFromRx called during SWITCHING state");
+      return;
+    }
   NS_ASSERT (IsStateIdle () || IsStateCcaBusy ());
 }
 

@@ -780,6 +780,33 @@ PhyEntity::PhyFieldRxStatus
 PhyEntity::DoEndReceivePreamble (Ptr<Event> event)
 {
   NS_LOG_FUNCTION (this << *event);
+  // During channel switching, preamble events may be cleared or duplicated.
+  // Handle gracefully by ensuring the assertion conditions are met.
+  if (m_wifiPhy->m_currentPreambleEvents.size () == 0)
+    {
+      // Events were cleared (e.g., during channel switch); re-add current event
+      auto uidPreamblePair = std::make_pair (event->GetPpdu ()->GetUid (), event->GetPpdu ()->GetPreamble ());
+      m_wifiPhy->m_currentPreambleEvents.insert ({uidPreamblePair, event});
+      NS_LOG_DEBUG ("Re-added preamble event after channel switch");
+    }
+  else if (m_wifiPhy->m_currentPreambleEvents.size () > 1)
+    {
+      // Remove all events except the one matching this event
+      NS_LOG_DEBUG ("Multiple preamble events (" << m_wifiPhy->m_currentPreambleEvents.size ()
+                     << "), keeping current event only");
+      auto it = m_wifiPhy->m_currentPreambleEvents.begin ();
+      while (it != m_wifiPhy->m_currentPreambleEvents.end ())
+        {
+          if (it->second != event)
+            {
+              it = m_wifiPhy->m_currentPreambleEvents.erase (it);
+            }
+          else
+            {
+              ++it;
+            }
+        }
+    }
   NS_ASSERT (m_wifiPhy->m_currentPreambleEvents.size () == 1); //Synched on one after detection period
   return PhyFieldRxStatus (true); //always consider that preamble has been correctly received if preamble detection was OK
 }

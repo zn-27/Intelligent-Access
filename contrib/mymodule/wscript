@@ -1,18 +1,41 @@
-# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8 -*-
 
-# def options(opt):
-#     pass
+def configure(conf):
+    # 检查 GMP (GNU Multiple Precision Arithmetic Library)
+    have_gmp = conf.check_cfg(package='gmp', args=['--cflags', '--libs'],
+                              uselib_store='GMP', mandatory=False)
+    conf.env['ENABLE_GMP'] = have_gmp
+    if not have_gmp:
+        conf.report_optional_feature("GMP", "GNU Multiple Precision Library",
+                                     False, "GMP not found — crypto disabled")
+        conf.env['HAVE_GMP'] = 0
+    else:
+        conf.env['HAVE_GMP'] = 1
 
-# def configure(conf):
-#     conf.check_nonfatal(header_name='stdint.h', define_name='HAVE_STDINT_H')
+    # 检查 OpenSSL (libcrypto)
+    have_ssl = conf.check_cfg(package='openssl', args=['--cflags', '--libs'],
+                              uselib_store='SSL', mandatory=False)
+    conf.env['ENABLE_SSL'] = have_ssl
+    if not have_ssl:
+        conf.report_optional_feature("OpenSSL", "OpenSSL libcrypto",
+                                     False, "OpenSSL not found — HMAC disabled")
 
 def build(bld):
-    module = bld.create_ns3_module('mymodule', ['core', 'network', 'internet', 'applications'])
+    module = bld.create_ns3_module('mymodule', ['core', 'network', 'internet', 'applications', 'wifi'])
     module.source = [
         'model/mymodule.cc',
         'model/simple-adhoc-ip.cc',
+        'model/blind-connect-app.cc',
+        'model/crypto-utils.cc',
         'helper/mymodule-helper.cc',
+        'helper/blind-connect-helper.cc',
         ]
+
+    # 链接外部库 (GMP + OpenSSL)
+    if bld.env['HAVE_GMP']:
+        module.use.append('GMP')
+    if bld.env['ENABLE_SSL']:
+        module.use.append('SSL')
 
     module_test = bld.create_ns3_module_test_library('mymodule')
     module_test.source = [
@@ -29,11 +52,13 @@ def build(bld):
     headers.source = [
         'model/mymodule.h',
         'model/simple-adhoc-ip.h',
+        'model/blind-connect-app.h',
+        'model/crypto-utils.h',
         'helper/mymodule-helper.h',
+        'helper/blind-connect-helper.h',
         ]
 
     if bld.env.ENABLE_EXAMPLES:
         bld.recurse('examples')
 
     # bld.ns3_python_bindings()
-

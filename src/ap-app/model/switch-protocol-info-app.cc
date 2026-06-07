@@ -131,7 +131,18 @@ SwitchProtocolInfoApp::CollectStaMassage()
       Ptr<Ipv4> ipv4 = staNode->GetObject<Ipv4>();
       if (!ipv4) continue;
 
-      Ipv4Address ip = ipv4->GetAddress(1, 0).GetLocal();
+      // 遍历所有接口找到第一个非 loopback 的有效 IP
+      Ipv4Address ip("0.0.0.0");
+      for (uint32_t ifIdx = 0; ifIdx < ipv4->GetNInterfaces(); ++ifIdx) {
+        for (uint32_t aIdx = 0; aIdx < ipv4->GetNAddresses(ifIdx); ++aIdx) {
+          Ipv4Address candidate = ipv4->GetAddress(ifIdx, aIdx).GetLocal();
+          if (candidate != Ipv4Address("127.0.0.1") && candidate != Ipv4Address("0.0.0.0")) {
+            ip = candidate;
+            break;
+          }
+        }
+        if (ip != Ipv4Address("0.0.0.0")) break;
+      }
 
       stamessage sm;
       sm.mac_address = staMac.ConvertToU64();
