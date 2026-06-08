@@ -355,7 +355,7 @@ void BlindConnectApp::ReceiveApSniffer(Ptr<const Packet> packet, uint16_t channe
         << "GW:" << m_poolBase;
     std::string resp = oss.str();
     Ptr<Packet> p = Create<Packet>((uint8_t*)resp.c_str(), resp.length());
-    m_apServerSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 68));
+    m_staDevice->Send(p, mac, 0x0800);
 
     std::cout << Simulator::Now().GetSeconds()
               << "s: [ApServer-Sniffer] 发送 IP_OFFER: " << ip << " -> " << mac << std::endl;
@@ -430,15 +430,12 @@ void BlindConnectApp::ReceiveAdhocBeacon(Ptr<const Packet> packet, uint16_t chan
             }
 
             Ptr<Packet> p = Create<Packet>((uint8_t*)resp.c_str(), resp.length());
-            // 同时从 Adhoc 和 AP 设备发送 IP_OFFER，确保终端无论从哪个信道对象都能收到
-            m_broadcastSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 9));
+            // 同时从 Adhoc 和 AP 设备发送 IP_OFFER（SendFrom/Send 绕过 OFSwitch13）
+            Mac48Address bcast = Mac48Address::GetBroadcast();
+            m_adhocDevice->SendFrom(p, m_adhocDevice->GetAddress(), bcast, 0x0800);
             if (m_staDevice) {
-                Ptr<Socket> apSocket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
-                apSocket->SetAllowBroadcast(true);
-                apSocket->BindToNetDevice(m_staDevice);
                 Ptr<Packet> p2 = Create<Packet>((uint8_t*)resp.c_str(), resp.length());
-                apSocket->SendTo(p2, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 9));
-                apSocket->Close();
+                m_staDevice->Send(p2, bcast, 0x0800);
             }
             NS_LOG_INFO("Gateway sent IP_OFFER: " << ip << " to " << mac);
             // 通知 SDN 控制器注入 ARP
@@ -817,18 +814,7 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
     if (bestNode.type == ScannedNodeInfo::TYPE_AP) {
         // 停止跳频，锁定到 AP 信道
         Simulator::Cancel(m_hopEvent);
-        Ptr<WifiPhy> staPhy = m_staDevice->GetPhy();
-        uint8_t apChannel = (bestNode.channelFreqMhz > 0)
-            ? (bestNode.channelFreqMhz - 2407) / 5
-            : 1;
-        // PHY 忙时延迟重试，避免断言崩溃
-        if (staPhy->IsStateTx() || staPhy->IsStateRx() || staPhy->IsStateSwitching() ||
-            staPhy->IsStateSleep() || staPhy->IsStateOff()) {
-            Simulator::Schedule(MilliSeconds(5), &BlindConnectApp::ExecuteSwitch, this, bestNode);
-            return;
-        }
-        staPhy->SetOperatingChannel(apChannel, bestNode.channelFreqMhz, 20);
-
+        // 不手动锁PHY信道——让StaWifiMac的扫描自己管理，否则EDCA发射会异常
         Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
         if (staMac) {
             staMac->SetSsid(bestNode.ssid);
@@ -877,7 +863,8 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
         m_ipRetryEvent = Simulator::Schedule(Seconds(5.0), &BlindConnectApp::RetryStaIp, this);
         // 启动周期性重扫其他信道
         m_apChannelFreqMhz = bestNode.channelFreqMhz;
-        m_apChannelNum = apChannel;
+        m_apChannelNum = (bestNode.channelFreqMhz > 0)
+            ? (bestNode.channelFreqMhz - 2407) / 5 : 1;
         ScheduleApRescan();
 
     } else {
@@ -1106,30 +1093,15 @@ void BlindConnectApp::RetryAdhocIp() {
 
 void BlindConnectApp::RequestStaIp() {
     if (!m_staDevice) return;
-    std::cout << Simulator::Now().GetSeconds() << "s: [ReqStaIp] 发送 IP 请求..." << std::endl;
+    Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
+    bool assoc = staMac ? staMac->IsAssociated() : false;
+    std::cout << Simulator::Now().GetSeconds() << "s: [ReqStaIp] IsAssociated=" << assoc << std::endl;
 
-    if (m_staIpSocket) {
-        m_staIpSocket->Close();
-    }
-    Ptr<NetDevice> socketDev = GetSocketStaDev();
+    if (m_staIpSocket) { m_staIpSocket->Close(); }
     m_staIpSocket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
     m_staIpSocket->SetAllowBroadcast(true);
-    m_staIpSocket->BindToNetDevice(socketDev);
     m_staIpSocket->Bind(InetSocketAddress(Ipv4Address::GetAny(), 68));
-    m_staIpSocket->SetRecvPktInfo(true);
     m_staIpSocket->SetRecvCallback(MakeCallback(&BlindConnectApp::HandleStaIpRead, this));
-
-    // 给STA接口分配临时有效IP，否则ns-3 IP栈无法用0.0.0.0发送广播
-    Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4>();
-    int32_t ifIndex = ipv4->GetInterfaceForDevice(socketDev);
-    if (ifIndex >= 0) {
-        while (ipv4->GetNAddresses(ifIndex) > 0) {
-            ipv4->RemoveAddress(ifIndex, 0);
-        }
-        ipv4->AddAddress(ifIndex, Ipv4InterfaceAddress(
-            Ipv4Address("169.254.1.1"), Ipv4Mask("255.255.0.0")));
-        ipv4->SetUp(ifIndex);
-    }
 
     std::ostringstream oss;
     oss << "TYPE:IP_REQUEST;"
@@ -1137,9 +1109,7 @@ void BlindConnectApp::RequestStaIp() {
     std::string payload = oss.str();
     Ptr<Packet> p = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
     int sent = m_staIpSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 67));
-    std::cout << Simulator::Now().GetSeconds() << "s: [ReqStaIp] SendTo 返回值=" << sent << std::endl;
-
-    NS_LOG_INFO("Terminal sent STA IP_REQUEST");
+    std::cout << Simulator::Now().GetSeconds() << "s: [ReqStaIp] SendTo=" << sent << std::endl;
 }
 
 void BlindConnectApp::RetryStaIp() {
