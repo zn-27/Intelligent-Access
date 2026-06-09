@@ -204,8 +204,21 @@ PrintMobileNodeStatus(Ptr<Node> node, Ptr<BlindConnectApp> app)
               << " Pos=(" << pos.x << "," << pos.y << ")"
               << " Net=" << netTypeStr
               << " SNR=" << app->GetCurrentSnr() << "dBm"
-              << " IP=" << app->GetAssignedIp()
-              << std::endl;
+              << " App.IP=" << app->GetAssignedIp();
+    // 打印所有接口的真实 IP（诊断是否真正切换）
+    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+    if (ipv4) {
+        std::cout << " | Ifaces:";
+        for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
+            for (uint32_t j = 0; j < ipv4->GetNAddresses(i); ++j) {
+                Ipv4Address a = ipv4->GetAddress(i, j).GetLocal();
+                if (a == Ipv4Address::GetLoopback()) continue;
+                std::cout << " if" << i << "=" << a
+                          << (ipv4->IsUp(i) ? "(UP)" : "(DOWN)");
+            }
+        }
+    }
+    std::cout << std::endl;
     Simulator::Schedule(Seconds(2.0), &PrintMobileNodeStatus, node, app);
 }
 
@@ -758,7 +771,7 @@ int main(int argc, char *argv[])
         mobMobile.Install(mobileNode);
         Ptr<ConstantVelocityMobilityModel> cvmm =
             mobileNode.Get(0)->GetObject<ConstantVelocityMobilityModel>();
-        cvmm->SetVelocity(Vector(8.0, 0.0, 0.0));  // 向右 8 m/s，确保在各域有充足驻留时间
+        cvmm->SetVelocity(Vector(3.0, 0.0, 0.0));  // 向右 3 m/s,在每个域有充足停留时间完成入网+业务
         std::cout << "[Mobile] 初始位置: (-250, 200), 速度: (8, 0, 0)" << std::endl;
     }
 
@@ -812,14 +825,14 @@ int main(int argc, char *argv[])
     // =========================================================
     // 15. SwitchProtocolInfoApp 安装（融合架构）
     // =========================================================
-    auto installSwitchApp = [](Ptr<Node> switchNode, Ptr<WifiNetDevice> apWifiDev, uint32_t portNo) {
+    auto installSwitchApp = [&simTime](Ptr<Node> switchNode, Ptr<WifiNetDevice> apWifiDev, uint32_t portNo) {
         Ptr<SwitchProtocolInfoApp> app = CreateObject<SwitchProtocolInfoApp>();
         Ptr<ApWifiMac> apMac = DynamicCast<ApWifiMac>(apWifiDev->GetMac());
         app->SetApMac(apMac);
         app->SetApPortNo(portNo);
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
-        app->SetStopTime(Seconds(60.0));
+        app->SetStopTime(Seconds(simTime));
         return app;
     };
 
@@ -845,7 +858,7 @@ int main(int argc, char *argv[])
     // =========================================================
 
     // --- 辅助：安装 ROLE_AP_SERVER (sw1/sw2, socket绑定原生AP设备) ---
-    auto installApServerApp = [&controllerApp](Ptr<Node> switchNode,
+    auto installApServerApp = [&controllerApp, &simTime](Ptr<Node> switchNode,
                                   Ptr<WifiNetDevice> rawApDev,
                                   Ipv4Address poolBase, Ipv4Address poolStart,
                                   Ipv4Address poolEnd, Ipv4Mask poolMask) {
@@ -861,12 +874,12 @@ int main(int argc, char *argv[])
         });
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(60.0));
+        app->SetStopTime(Seconds(simTime));
         return app;
     };
 
     // --- 辅助：安装 ROLE_GATEWAY (伪信标走AP网卡, IP_REQUEST监听走Adhoc网卡) ---
-    auto installGatewayApp = [&controllerApp](Ptr<Node> switchNode,
+    auto installGatewayApp = [&controllerApp, &simTime](Ptr<Node> switchNode,
                                 Ptr<WifiNetDevice> staDev,
                                 Ptr<WifiNetDevice> rawEmDev,
                                 Ptr<VirtualNetDevice> emVnd,
@@ -887,7 +900,7 @@ int main(int argc, char *argv[])
         });
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(60.0));
+        app->SetStopTime(Seconds(simTime));
         return app;
     };
 
@@ -919,7 +932,7 @@ int main(int argc, char *argv[])
     mobileApp->SetSocketAdhocDevice(mobileEmDev.Get(0));
     mobileNode.Get(0)->AddApplication(mobileApp);
     mobileApp->SetStartTime(Seconds(1.5));
-    mobileApp->SetStopTime(Seconds(60.0));
+    mobileApp->SetStopTime(Seconds(simTime));
 
     // 注册 Adhoc 域信道映射（SSID → YansWifiChannel），用于 ExecuteSwitch 动态切换
     mobileApp->RegisterAdhocChannel("Adhoc-Net", domainChC);

@@ -144,6 +144,7 @@ private:
   EventId m_evalEvent;
   EventId m_rescanEvent;          // AP域周期性信道重扫
   EventId m_ipRetryEvent;         // IP请求重试定时器
+  EventId m_ipReqEvent;           // 首次IP请求的延迟定时器(切换时需取消)
   int m_ipRetryCount;             // IP请求重试次数
   Time m_dwellTime;
   Time m_lastSwitchTime;           // 上次切换时间，防止频繁切换
@@ -154,6 +155,7 @@ private:
   uint32_t m_rescanChCount;        // 重扫已切换的信道计数
   uint16_t m_apChannelFreqMhz;     // 重扫前AP信道频率（用于恢复）
   uint8_t m_apChannelNum;          // 重扫前AP信道号
+  uint32_t m_initWaitApRounds;     // 首次入网等待AP的轮数计数
 
   std::vector<ScannedNodeInfo> m_neighborRadar;
 
