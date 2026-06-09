@@ -887,20 +887,11 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
             }
             m_assignedIp = Ipv4Address("0.0.0.0");
         }
-        // 强制清空 Adhoc 接口上的所有 IP 地址（防止旧 IP 残留干扰新 AP 域）
+        // 只设 Adhoc 接口 DOWN（不删地址避免 ns-3 内部回调崩溃）
         {
             Ptr<NetDevice> adhocIfDev = GetSocketAdhocDev();
             int32_t adhocIfx = ipv4->GetInterfaceForDevice(adhocIfDev);
             if (adhocIfx >= 0) {
-                uint32_t n = ipv4->GetNAddresses(adhocIfx);
-                if (n > 0) {
-                    std::cout << Simulator::Now().GetSeconds()
-                              << "s: [ExecuteSwitch] 清空 Adhoc 接口残留 IP (共 "
-                              << n << " 个)" << std::endl;
-                    while (ipv4->GetNAddresses(adhocIfx) > 0) {
-                        ipv4->RemoveAddress(adhocIfx, 0);
-                    }
-                }
                 ipv4->SetDown(adhocIfx);
             }
         }
@@ -987,21 +978,16 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
                       << " (进入Adhoc域)" << std::endl;
             m_assignedIp = Ipv4Address("0.0.0.0");
         }
-        // 强制清空 STA 接口上的所有 IP 地址（防止旧 AP 域 IP 残留）
+        // 只设 STA 接口 DOWN，不删地址（ns-3 RemoveAddress 会触发内部回调 GetAddress(0) 崩溃）
+        // ConfigureIpOnInterface 在后续切回 AP 时会清理旧地址
         {
             Ptr<NetDevice> staIfDev = GetSocketStaDev();
             int32_t staIfx = ipv4->GetInterfaceForDevice(staIfDev);
             if (staIfx >= 0) {
-                uint32_t n = ipv4->GetNAddresses(staIfx);
-                if (n > 0) {
-                    std::cout << Simulator::Now().GetSeconds()
-                              << "s: [ExecuteSwitch] 清空 STA 接口残留 IP (共 "
-                              << n << " 个)" << std::endl;
-                    while (ipv4->GetNAddresses(staIfx) > 0) {
-                        ipv4->RemoveAddress(staIfx, 0);
-                    }
-                }
                 ipv4->SetDown(staIfx);
+                std::cout << Simulator::Now().GetSeconds()
+                          << "s: [ExecuteSwitch] STA 接口设为 DOWN (ifIdx="
+                          << staIfx << ")" << std::endl;
             }
         }
 
@@ -1011,6 +997,18 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
         m_currentSsid = bestNode.ssid;
         m_currentHops = bestNode.hopsToGw + 1;
         m_currentSnr = bestNode.snr;
+
+        // 确保 Adhoc 接口有临时 IP，否则 SendPseudoBeacon 通过 socket 发送时
+        // IP 协议栈会调用 GetAddress(0) 导致 FATAL ERROR
+        {
+            Ptr<NetDevice> adhocDev = GetSocketAdhocDev();
+            int32_t adhocIf = ipv4->GetInterfaceForDevice(adhocDev);
+            if (adhocIf >= 0 && ipv4->GetNAddresses(adhocIf) == 0) {
+                ipv4->AddAddress(adhocIf, Ipv4InterfaceAddress(
+                    Ipv4Address("169.254.0.1"), Ipv4Mask("255.255.0.0")));
+                ipv4->SetUp(adhocIf);
+            }
+        }
 
         if (!m_broadcastSocket) {
             m_broadcastSocket = Socket::CreateSocket(node, UdpSocketFactory::GetTypeId());

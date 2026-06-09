@@ -776,7 +776,7 @@ int main(int argc, char *argv[])
         mobMobile.Install(mobileNode);
         Ptr<ConstantVelocityMobilityModel> cvmm =
             mobileNode.Get(0)->GetObject<ConstantVelocityMobilityModel>();
-        cvmm->SetVelocity(Vector(3.0, 0.0, 0.0));  // 向右 3 m/s,在每个域有充足停留时间完成入网+业务
+        cvmm->SetVelocity(Vector(8.0, 0.0, 0.0));  // 向右 8 m/s,穿越域A→C→B
         std::cout << "[Mobile] 初始位置: (-250, 200), 速度: (8, 0, 0)" << std::endl;
     }
 
