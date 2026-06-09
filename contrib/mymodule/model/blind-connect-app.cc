@@ -1406,7 +1406,12 @@ void BlindConnectApp::HandleApServerRead(Ptr<Socket> socket) {
 void BlindConnectApp::ConfigureIpOnInterface(Ptr<NetDevice> dev, Ipv4Address ip, Ipv4Mask mask, Ipv4Address gw) {
     Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4>();
     int32_t ifIndex = ipv4->GetInterfaceForDevice(dev);
-    if (ifIndex < 0) return;
+    if (ifIndex < 0) {
+        // InternetStackHelper::Install 不自动为 WiFi 设备创建 Ipv4 接口
+        ifIndex = ipv4->AddInterface(dev);
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [ConfigureIp] 为设备创建新Ipv4接口 ifIndex=" << ifIndex << std::endl;
+    }
 
     while (ipv4->GetNAddresses(ifIndex) > 0) {
         ipv4->RemoveAddress(ifIndex, 0);

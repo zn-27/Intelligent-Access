@@ -210,12 +210,11 @@ PrintMobileNodeStatus(Ptr<Node> node, Ptr<BlindConnectApp> app)
     if (ipv4) {
         std::cout << " | Ifaces:";
         for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
-            for (uint32_t j = 0; j < ipv4->GetNAddresses(i); ++j) {
-                Ipv4Address a = ipv4->GetAddress(i, j).GetLocal();
-                if (a == Ipv4Address::GetLoopback()) continue;
-                std::cout << " if" << i << "=" << a
-                          << (ipv4->IsUp(i) ? "(UP)" : "(DOWN)");
-            }
+            if (ipv4->GetNAddresses(i) == 0) continue;
+            Ipv4Address a = ipv4->GetAddress(i, 0).GetLocal();
+            if (a == Ipv4Address::GetLoopback()) continue;
+            std::cout << " if" << i << "=" << a
+                      << (ipv4->IsUp(i) ? "(UP)" : "(DOWN)");
         }
     }
     std::cout << std::endl;
@@ -559,12 +558,18 @@ int main(int argc, char *argv[])
     }
 
     // 移动节点: StaWifiMac=0.0.0.0(动态获取), AdhocWifiMac=预分配(临时)
+    // 注意: InternetStackHelper::Install 不会自动为 WiFi 设备创建 Ipv4 接口,
+    //       必须先调用 AddInterface() 再 AddAddress()
     {
         Ptr<Ipv4> ipv4h = mobileNode.Get(0)->GetObject<Ipv4>();
         int32_t ifIdx = ipv4h->GetInterfaceForDevice(mobileStaDev.Get(0));
-        if (ifIdx >= 0) ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("0.0.0.0"), Ipv4Mask("/0")));
+        if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileStaDev.Get(0));
+        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("0.0.0.0"), Ipv4Mask("/0")));
+        ipv4h->SetUp(ifIdx);
         ifIdx = ipv4h->GetInterfaceForDevice(mobileEmDev.Get(0));
-        if (ifIdx >= 0) ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("10.100.3.100"), Ipv4Mask("255.255.255.0")));
+        if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileEmDev.Get(0));
+        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("10.100.3.100"), Ipv4Mask("255.255.255.0")));
+        ipv4h->SetUp(ifIdx);
     }
 
     // 骨干回传: Port 2 VND
