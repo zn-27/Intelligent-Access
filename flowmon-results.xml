@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <FlowMonitor>
   <FlowStats>
-    <Flow flowId="1" timeFirstTxPacket="+1.00082e+10ns" timeFirstRxPacket="+0ns" timeLastTxPacket="+4.91988e+10ns" timeLastRxPacket="+0ns" delaySum="+0ns" jitterSum="+0ns" lastDelay="+0ns" txBytes="5033820" rxBytes="0" txPackets="4785" rxPackets="0" lostPackets="3564" timesForwarded="0">
+    <Flow flowId="1" timeFirstTxPacket="+1.00082e+10ns" timeFirstRxPacket="+0ns" timeLastTxPacket="+5.63995e+10ns" timeLastRxPacket="+0ns" delaySum="+0ns" jitterSum="+0ns" lastDelay="+0ns" txBytes="5958528" rxBytes="0" txPackets="5664" rxPackets="0" lostPackets="4443" timesForwarded="0">
       <delayHistogram nBins="0" >
       </delayHistogram>
       <jitterHistogram nBins="0" >
@@ -14,14 +14,14 @@
   </FlowStats>
   <Ipv4FlowClassifier>
     <Flow flowId="1" sourceAddress="10.1.1.1" destinationAddress="10.100.3.4" protocol="17" sourcePort="49153" destinationPort="13">
-      <Dscp value="0x0" packets="4785" />
+      <Dscp value="0x0" packets="5664" />
     </Flow>
   </Ipv4FlowClassifier>
   <Ipv6FlowClassifier>
   </Ipv6FlowClassifier>
   <FlowProbes>
     <FlowProbe index="0">
-      <FlowStats  flowId="1" packets="4785" bytes="5033820" delayFromFirstProbeSum="+0ns" >
+      <FlowStats  flowId="1" packets="5664" bytes="5958528" delayFromFirstProbeSum="+0ns" >
       </FlowStats>
     </FlowProbe>
     <FlowProbe index="1">

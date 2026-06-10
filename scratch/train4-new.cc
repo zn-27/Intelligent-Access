@@ -295,8 +295,6 @@ int main(int argc, char *argv[])
     // =========================================================
     // 4. 域内专属 Adhoc WiFi (Port 3 基础) -- 每域独立信道
     // =========================================================
-    WifiMacHelper domainAdhocMac;
-    domainAdhocMac.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-Net")));
 
     // 域 A 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperA = YansWifiChannelHelper::Default();
@@ -308,8 +306,10 @@ int main(int argc, char *argv[])
     domainPhyA.Set("TxGain", DoubleValue(10.0));
     domainPhyA.Set("RxGain", DoubleValue(10.0));
 
-    NetDeviceContainer sw1EmDev = wifi.Install(domainPhyA, domainAdhocMac, sw1);
-    NetDeviceContainer staEmDevsA = wifi.Install(domainPhyA, domainAdhocMac, StaA);
+    WifiMacHelper domainAdhocMacA;
+    domainAdhocMacA.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-A")));
+    NetDeviceContainer sw1EmDev = wifi.Install(domainPhyA, domainAdhocMacA, sw1);
+    NetDeviceContainer staEmDevsA = wifi.Install(domainPhyA, domainAdhocMacA, StaA);
 
     // 域 B 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperB = YansWifiChannelHelper::Default();
@@ -321,8 +321,10 @@ int main(int argc, char *argv[])
     domainPhyB.Set("TxGain", DoubleValue(10.0));
     domainPhyB.Set("RxGain", DoubleValue(10.0));
 
-    NetDeviceContainer sw2EmDev = wifi.Install(domainPhyB, domainAdhocMac, sw2);
-    NetDeviceContainer staEmDevsB = wifi.Install(domainPhyB, domainAdhocMac, StaB);
+    WifiMacHelper domainAdhocMacB;
+    domainAdhocMacB.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-B")));
+    NetDeviceContainer sw2EmDev = wifi.Install(domainPhyB, domainAdhocMacB, sw2);
+    NetDeviceContainer staEmDevsB = wifi.Install(domainPhyB, domainAdhocMacB, StaB);
 
     // 域 C 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperC = YansWifiChannelHelper::Default();
@@ -334,9 +336,11 @@ int main(int argc, char *argv[])
     domainPhyC.Set("TxGain", DoubleValue(10.0));
     domainPhyC.Set("RxGain", DoubleValue(10.0));
 
-    NetDeviceContainer sw3EmDev = wifi.Install(domainPhyC, domainAdhocMac, sw3);
-    NetDeviceContainer staEmDevsC = wifi.Install(domainPhyC, domainAdhocMac, StaC);
-    // 域C Adhoc 锁定 ch11，与 mobileEmDev 同频（SSID="Adhoc-Net" 已在 MAC Helper 创建时设好）
+    WifiMacHelper domainAdhocMacC;
+    domainAdhocMacC.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-C")));
+    NetDeviceContainer sw3EmDev = wifi.Install(domainPhyC, domainAdhocMacC, sw3);
+    NetDeviceContainer staEmDevsC = wifi.Install(domainPhyC, domainAdhocMacC, StaC);
+    // 域C Adhoc 锁定 ch11，与 mobileEmDev 同频（SSID="Adhoc-C" 已在 MAC Helper 创建时设好）
     DynamicCast<WifiNetDevice>(sw3EmDev.Get(0))->GetPhy()->SetOperatingChannel(11, 2462, 20);
 
     // =========================================================
@@ -391,7 +395,10 @@ int main(int argc, char *argv[])
     // =========================================================
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(Ssid("Dummy")));
     NetDeviceContainer mobileStaDev = wifi.Install(phyAp, mac, mobileNode);
-    NetDeviceContainer mobileEmDev  = wifi.Install(domainPhyC, domainAdhocMac, mobileNode);
+    // 移动节点Ad-Hoc网卡初始SSID为Adhoc-C，固定不变，始终监听C域伪Beacon
+    WifiMacHelper mobileAdhocMac;
+    mobileAdhocMac.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-C")));
+    NetDeviceContainer mobileEmDev  = wifi.Install(domainPhyC, mobileAdhocMac, mobileNode);
     DynamicCast<WifiNetDevice>(mobileEmDev.Get(0))->GetPhy()->SetOperatingChannel(11, 2462, 20);
 
     // =========================================================
@@ -557,18 +564,20 @@ int main(int argc, char *argv[])
         ipv4.Assign(NetDeviceContainer(apWifiDevsC.Get(0)));
     }
 
-    // 移动节点: StaWifiMac=0.0.0.0(动态获取), AdhocWifiMac=预分配(临时)
+    // 移动节点: StaWifiMac + AdhocWifiMac 均初始化为 link-local 占位 (169.254.x.x)
+    // 防止 ns-3 内部 GetAddress(0) 因 0.0.0.0 触发 FATAL 崩溃
+    // BlindConnectApp 跨域切换时会清除旧地址并分配真实 IP / 回退 link-local
     // 注意: InternetStackHelper::Install 不会自动为 WiFi 设备创建 Ipv4 接口,
     //       必须先调用 AddInterface() 再 AddAddress()
     {
         Ptr<Ipv4> ipv4h = mobileNode.Get(0)->GetObject<Ipv4>();
         int32_t ifIdx = ipv4h->GetInterfaceForDevice(mobileStaDev.Get(0));
         if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileStaDev.Get(0));
-        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("0.0.0.0"), Ipv4Mask("/0")));
+        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("169.254.1.1"), Ipv4Mask("255.255.0.0")));
         ipv4h->SetUp(ifIdx);
         ifIdx = ipv4h->GetInterfaceForDevice(mobileEmDev.Get(0));
         if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileEmDev.Get(0));
-        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("10.100.3.100"), Ipv4Mask("255.255.255.0")));
+        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("169.254.2.1"), Ipv4Mask("255.255.0.0")));
         ipv4h->SetUp(ifIdx);
     }
 
@@ -895,7 +904,7 @@ int main(int argc, char *argv[])
         app->SetStaDevice(staDev);               // 伪信标通过AP网卡发送
         app->SetAdhocDevice(rawEmDev);           // IP_REQUEST 通过Adhoc PHY监听
         app->SetSocketAdhocDevice(emVnd);        // IP_OFFER 从VND发送(IP在此)
-        app->SetAdhocSsid(Ssid("Adhoc-Net"));
+        app->SetAdhocSsid(Ssid("Adhoc-C"));  // C域GATEWAY发送伪Beacon的SSID
         app->SetAttribute("PoolBase", Ipv4AddressValue(poolBase));
         app->SetAttribute("PoolStart", Ipv4AddressValue(poolStart));
         app->SetAttribute("PoolEnd", Ipv4AddressValue(poolEnd));

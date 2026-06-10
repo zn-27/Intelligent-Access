@@ -113,6 +113,8 @@ private:
   void HandleStaIpRead(Ptr<Socket> socket);
   void HandleApServerRead(Ptr<Socket> socket);
   void ConfigureIpOnInterface(Ptr<NetDevice> dev, Ipv4Address ip, Ipv4Mask mask, Ipv4Address gw);
+  void ConfigureAdhocIpByDomain(uint32_t domainId);  // 硬编码配置Adhoc网卡 (1=A, 2=B, 3=C)
+  void ConfigureStaIpByDomain(uint32_t domainId);    // 硬编码配置STA网卡 (1=A, 2=B, 3=C)
 
   // --- 加密操作 ---
   void InitCrypto();                                           // 初始化加密子系统
