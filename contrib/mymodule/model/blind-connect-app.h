@@ -27,6 +27,21 @@ class BlindConnectApp : public Application
 public:
   enum AppRole { ROLE_TERMINAL, ROLE_GATEWAY, ROLE_BACKBONE, ROLE_AP_SERVER };
 
+  // 数据面模式：控制哪张网卡承载业务数据
+  enum DataPlaneMode { DATA_PLANE_AP, DATA_PLANE_ADHOC };
+
+  // 接口软状态：控制面常活，数据面可激活/静默
+  struct InterfaceSoftState {
+    Ipv4Address ip;
+    Ipv4Address gw;
+    Ipv4Mask mask;
+    bool controlActive;  // 控制面常活（始终true）
+    bool dataActive;     // 数据面活跃/静默
+
+    InterfaceSoftState() : ip("0.0.0.0"), gw("0.0.0.0"), mask("255.255.255.0"),
+                          controlActive(true), dataActive(false) {}
+  };
+
   struct ScannedNodeInfo {
     enum NodeType { TYPE_AP, TYPE_ADHOC };
     NodeType type;
@@ -115,6 +130,12 @@ private:
   void ConfigureIpOnInterface(Ptr<NetDevice> dev, Ipv4Address ip, Ipv4Mask mask, Ipv4Address gw);
   void ConfigureAdhocIpByDomain(uint32_t domainId);  // 硬编码配置Adhoc网卡 (1=A, 2=B, 3=C)
   void ConfigureStaIpByDomain(uint32_t domainId);    // 硬编码配置STA网卡 (1=A, 2=B, 3=C)
+  void ConfigureDualIpForDomain(uint32_t domainId); // 同时配置当前域的双网卡IP
+  void SetDataPlaneActive(DataPlaneMode mode);      // 设置数据面活跃网卡
+  void EnsureBothInterfacesUp();                    // 确保两张接口都UP
+  void SetDefaultRoute(Ptr<NetDevice> dev, Ipv4Address gw);
+  void BindDataSocketsToActiveDevice(Ptr<NetDevice> dev);
+  uint32_t GetDomainIdFromBestNode(const ScannedNodeInfo& node) const;
 
   // --- 加密操作 ---
   void InitCrypto();                                           // 初始化加密子系统
@@ -185,6 +206,12 @@ private:
   Ipv4Address m_assignedIp;
   Ipv4Mask m_assignedMask;
   Ipv4Address m_assignedGw;
+
+  // --- 软休眠状态管理 ---
+  DataPlaneMode m_dataPlaneMode;
+  InterfaceSoftState m_staState;      // STA网卡状态
+  InterfaceSoftState m_adhocState;    // Ad-Hoc网卡状态
+  uint32_t m_currentDomainId;         // 当前所在域 (1=A, 2=B, 3=C)
 
   // --- AP Server ---
   Ptr<Socket> m_apServerSocket;

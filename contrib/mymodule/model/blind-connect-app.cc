@@ -70,6 +70,8 @@ BlindConnectApp::BlindConnectApp()
       m_assignedIp("0.0.0.0"),
       m_assignedMask("255.255.255.0"),
       m_assignedGw("0.0.0.0"),
+      m_dataPlaneMode(DATA_PLANE_ADHOC),
+      m_currentDomainId(0),
       m_cryptoEnabled(false),
       m_keyExchange(nullptr),
       m_privateKeyBytes(nullptr),
@@ -848,7 +850,6 @@ void BlindConnectApp::EvaluateAndSwitch() {
 
 void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
     m_lastSwitchTime = Simulator::Now();
-    // 取消任何挂着的旧 IP 请求/重试事件,防止上一域的请求在新域发出
     Simulator::Cancel(m_ipReqEvent);
     Simulator::Cancel(m_ipRetryEvent);
     Ptr<Node> node = GetNode();
@@ -864,61 +865,47 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
               << std::endl;
     std::cout << "           旧IP=" << m_assignedIp << std::endl;
 
+    // 1. 确定目标域ID，域变了则双网卡同步配置新域IP
+    uint32_t targetDomainId = GetDomainIdFromBestNode(bestNode);
+    if (targetDomainId > 0 && targetDomainId != m_currentDomainId) {
+        // 离开旧域时释放Ad-Hoc IP（如果是从Ad-Hoc域离开）
+        if (m_currentNetType == ScannedNodeInfo::TYPE_ADHOC
+            && m_broadcastSocket
+            && m_assignedIp != Ipv4Address("0.0.0.0")) {
+            std::ostringstream oss;
+            oss << "TYPE:IP_RELEASE;"
+                << "MAC:" << m_adhocDevice->GetAddress() << ";"
+                << "IP:" << m_assignedIp;
+            std::string payload = oss.str();
+            Ptr<Packet> p = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
+            m_broadcastSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 9));
+            std::cout << Simulator::Now().GetSeconds()
+                      << "s: [ExecuteSwitch] 释放旧域IP=" << m_assignedIp << std::endl;
+        }
+        // 双网卡同时配置新域IP
+        ConfigureDualIpForDomain(targetDomainId);
+    }
+
+    // 2. 判断是否C域（Ad-Hoc决定入网）
+    std::string adhocSsidStr(bestNode.ssid.PeekString());
+    bool isDomainC = (adhocSsidStr == "Adhoc-C");
+
     if (bestNode.type == ScannedNodeInfo::TYPE_AP) {
-        // 停止跳频，锁定到 AP 信道
+        // --- 切换到AP数据模式 ---
         Simulator::Cancel(m_hopEvent);
-        // 不手动锁PHY信道——让StaWifiMac的扫描自己管理，否则EDCA发射会异常
+        Simulator::Cancel(m_rescanEvent);
+        m_inApRescan = false;
+
+        // STA网卡连接目标AP（保留SSID，不硬清空再设置）
         Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
         if (staMac) {
             staMac->SetSsid(bestNode.ssid);
         }
 
-        // 断开 Adhoc 连接：清空 Adhoc SSID（PHY MonitorSnifferRx 继续监听）
-        Ptr<AdhocWifiMac> adhocMac = DynamicCast<AdhocWifiMac>(m_adhocDevice->GetMac());
-        if (adhocMac) {
-            adhocMac->SetSsid(Ssid(""));
-        }
+        // 切换数据面到AP
+        SetDataPlaneActive(DATA_PLANE_AP);
 
-        // 离开旧网络时释放 IP（Adhoc→AP 或 AP→AP）
-        if (m_assignedIp != Ipv4Address("0.0.0.0")) {
-            std::cout << Simulator::Now().GetSeconds()
-                      << "s: [ExecuteSwitch] 释放旧IP=" << m_assignedIp
-                      << " (进入AP域)" << std::endl;
-            if (m_currentNetType == ScannedNodeInfo::TYPE_ADHOC
-                && m_broadcastSocket) {
-                std::ostringstream oss;
-                oss << "TYPE:IP_RELEASE;"
-                    << "MAC:" << m_adhocDevice->GetAddress() << ";"
-                    << "IP:" << m_assignedIp;
-                std::string payload = oss.str();
-                Ptr<Packet> p = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
-                m_broadcastSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 9));
-            }
-            m_assignedIp = Ipv4Address("0.0.0.0");
-        }
-        // 根据SSID判断域ID，硬编码配置Adhoc网卡
-        uint32_t domainId = 0;
-        if (newSsid == "A") domainId = 1;
-        else if (newSsid == "B") domainId = 2;
-        else if (newSsid == "C") domainId = 3;
-        if (domainId > 0) {
-            ConfigureAdhocIpByDomain(domainId);
-        }
-
-        // STA 网卡保持 link-local 占位（等待动态IP分配）
-        {
-            Ptr<NetDevice> staIfDev = GetSocketStaDev();
-            int32_t staIfx = ipv4->GetInterfaceForDevice(staIfDev);
-            if (staIfx >= 0) {
-                while (ipv4->GetNAddresses(staIfx) > 0) {
-                    ipv4->RemoveAddress(staIfx, 0);
-                }
-                ipv4->AddAddress(staIfx, Ipv4InterfaceAddress(
-                    Ipv4Address("169.254.1.1"), Ipv4Mask("255.255.0.0")));
-                ipv4->SetUp(staIfx);
-            }
-        }
-        // 停 Adhoc 广播 socket
+        // 停Ad-Hoc广播socket（AP域不需要发伪信标）
         if (m_broadcastSocket) {
             Simulator::Cancel(m_beaconEvent);
             m_broadcastSocket->Close();
@@ -930,197 +917,129 @@ void BlindConnectApp::ExecuteSwitch(const ScannedNodeInfo& bestNode) {
         m_currentHops = 0;
         m_currentSnr = bestNode.snr;
 
-        // 等待 STA 关联完成后再请求 IP（延迟 3.0s，给足 Auth+Assoc 时间）
-        m_ipReqEvent = Simulator::Schedule(Seconds(3.0), &BlindConnectApp::RequestStaIp, this);
-        // 启动重试: 5s后若仍未获取则重试 (3s关联 + 2s等待响应)
-        m_ipRetryCount = 0;
-        m_ipRetryEvent = Simulator::Schedule(Seconds(5.0), &BlindConnectApp::RetryStaIp, this);
-        // 启动周期性重扫其他信道
+        // AP域IP请求（如果之前没有IP或域变了）
+        if (m_assignedIp == Ipv4Address("0.0.0.0")) {
+            m_ipReqEvent = Simulator::Schedule(Seconds(3.0), &BlindConnectApp::RequestStaIp, this);
+            m_ipRetryCount = 0;
+            m_ipRetryEvent = Simulator::Schedule(Seconds(5.0), &BlindConnectApp::RetryStaIp, this);
+        }
+
         m_apChannelFreqMhz = bestNode.channelFreqMhz;
         m_apChannelNum = (bestNode.channelFreqMhz > 0)
             ? (bestNode.channelFreqMhz - 2407) / 5 : 1;
         ScheduleApRescan();
 
+    } else if (isDomainC) {
+        // --- C域切换：Ad-Hoc决定，STA网卡连接C域AP ---
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [ExecuteSwitch] C域切换: Ad-Hoc决定入网" << std::endl;
+
+        Simulator::Cancel(m_hopEvent);
+        Simulator::Cancel(m_rescanEvent);
+        m_inApRescan = false;
+
+        // STA网卡连接C域AP
+        Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
+        if (staMac) {
+            staMac->SetSsid(Ssid("C"));
+            Ptr<WifiPhy> staPhy = m_staDevice->GetPhy();
+            if (staPhy) {
+                staPhy->SetOperatingChannel(11, 2462, 20);
+            }
+        }
+
+        // 切换数据面到AP（C域走STA承载业务）
+        SetDataPlaneActive(DATA_PLANE_AP);
+
+        m_apChannelFreqMhz = 2462;
+        m_apChannelNum = 11;
+        ScheduleApRescan();
+
+        m_currentNetType = ScannedNodeInfo::TYPE_AP;
+        m_currentSsid = Ssid("C");
+        m_currentHops = 0;
+        m_currentSnr = bestNode.snr;
+
     } else {
-        // C域特殊处理：收到Adhoc-C伪Beacon时，切换到C域AP模式
-        std::string adhocSsidStr(bestNode.ssid.PeekString());
-        bool isDomainC = (adhocSsidStr == "Adhoc-C");
+        // --- A/B域：切换到Ad-Hoc数据模式 ---
+        Simulator::Cancel(m_rescanEvent);
+        m_inApRescan = false;
+        if (!m_hopEvent.IsRunning()) {
+            SwitchToNextChannel();
+        }
 
-        if (isDomainC) {
-            // C域切换逻辑：Ad-Hoc网卡决定切换，STA网卡连接C域AP
-            std::cout << Simulator::Now().GetSeconds()
-                      << "s: [ExecuteSwitch] C域切换: Ad-Hoc决定, STA网卡连接AP-C" << std::endl;
-
-            // 停止跳频，锁定到 C域信道(ch11)
-            Simulator::Cancel(m_hopEvent);
-            Simulator::Cancel(m_rescanEvent);
-            m_inApRescan = false;
-
-            // STA网卡SSID设为"C"，连接C域交换机
-            Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
-            if (staMac) {
-                staMac->SetSsid(Ssid("C"));
-                Ptr<WifiPhy> staPhy = m_staDevice->GetPhy();
-                if (staPhy) {
-                    staPhy->SetOperatingChannel(11, 2462, 20);
+        // 切换Adhoc PHY到目标域信道
+        {
+            std::string ssidKey = bestNode.ssid.PeekString();
+            auto chanIt = m_adhocChannels.find(ssidKey);
+            if (chanIt != m_adhocChannels.end()) {
+                Ptr<WifiPhy> adhocPhy = m_adhocDevice->GetPhy();
+                Ptr<YansWifiPhy> yansPhy = DynamicCast<YansWifiPhy>(adhocPhy);
+                if (yansPhy && yansPhy->GetChannel() != chanIt->second) {
+                    if (adhocPhy->IsStateTx() || adhocPhy->IsStateRx() ||
+                        adhocPhy->IsStateSwitching() || adhocPhy->IsStateSleep() ||
+                        adhocPhy->IsStateOff()) {
+                        Simulator::Schedule(MilliSeconds(5), &BlindConnectApp::ExecuteSwitch,
+                                            this, bestNode);
+                        return;
+                    }
+                    yansPhy->SetChannel(chanIt->second);
+                    uint8_t chNum = (bestNode.channelFreqMhz > 0)
+                        ? (bestNode.channelFreqMhz - 2407) / 5
+                        : 11;
+                    adhocPhy->SetOperatingChannel(chNum, bestNode.channelFreqMhz, 20);
+                    std::cout << Simulator::Now().GetSeconds()
+                              << "s: [ExecuteSwitch] Adhoc信道对象已切换到 " << ssidKey
+                              << " ch=" << (int)chNum << std::endl;
                 }
             }
+        }
 
-            // 离开旧网络时释放IP
-            if (m_assignedIp != Ipv4Address("0.0.0.0")) {
-                std::cout << Simulator::Now().GetSeconds()
-                          << "s: [ExecuteSwitch] 释放旧IP=" << m_assignedIp
-                          << " (进入C域)" << std::endl;
-                if (m_currentNetType == ScannedNodeInfo::TYPE_ADHOC
-                    && m_broadcastSocket) {
-                    std::ostringstream oss;
-                    oss << "TYPE:IP_RELEASE;"
-                        << "MAC:" << m_adhocDevice->GetAddress() << ";"
-                        << "IP:" << m_assignedIp;
-                    std::string payload = oss.str();
-                    Ptr<Packet> p = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
-                    m_broadcastSocket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 9));
-                }
-                m_assignedIp = Ipv4Address("0.0.0.0");
+        // 清理STA侧IP socket
+        if (m_staIpSocket) {
+            m_staIpSocket->Close();
+            m_staIpSocket = nullptr;
+        }
+
+        // 切换数据面到Ad-Hoc
+        SetDataPlaneActive(DATA_PLANE_ADHOC);
+
+        m_currentNetType = ScannedNodeInfo::TYPE_ADHOC;
+        m_currentSsid = bestNode.ssid;
+        m_currentHops = bestNode.hopsToGw + 1;
+        m_currentSnr = bestNode.snr;
+
+        // 确保Adhoc接口有临时IP
+        {
+            Ptr<NetDevice> adhocDev = GetSocketAdhocDev();
+            int32_t adhocIf = ipv4->GetInterfaceForDevice(adhocDev);
+            if (adhocIf >= 0 && ipv4->GetNAddresses(adhocIf) == 0) {
+                ipv4->AddAddress(adhocIf, Ipv4InterfaceAddress(
+                    Ipv4Address("169.254.0.1"), Ipv4Mask("255.255.0.0")));
+                ipv4->SetUp(adhocIf);
             }
+        }
 
-            // 配置Ad-Hoc网卡IP为C域网段
-            ConfigureAdhocIpByDomain(3);
+        // 启动伪信标广播
+        if (!m_broadcastSocket) {
+            m_broadcastSocket = Socket::CreateSocket(node, UdpSocketFactory::GetTypeId());
+            m_broadcastSocket->SetAllowBroadcast(true);
+            m_broadcastSocket->BindToNetDevice(GetSocketAdhocDev());
+            m_localHops = bestNode.hopsToGw;
+            SendPseudoBeacon();
+        }
 
-            // STA网卡硬编码分配C域IP（C域无GATEWAY IP分配池）
-            ConfigureStaIpByDomain(3);
-
-            // 启动周期性重扫其他信道
-            m_apChannelFreqMhz = 2462;
-            m_apChannelNum = 11;
-            ScheduleApRescan();
-
-            m_currentNetType = ScannedNodeInfo::TYPE_AP;
-            m_currentSsid = Ssid("C");
-            m_currentHops = 0;
-            m_currentSnr = bestNode.snr;
-
+        // Ad-Hoc IP请求
+        bool alreadyHasIp = (m_assignedIp != Ipv4Address("0.0.0.0"));
+        if (!alreadyHasIp) {
+            m_ipRetryCount = 0;
+            m_ipReqEvent = Simulator::Schedule(MilliSeconds(500), &BlindConnectApp::RequestAdhocIp, this);
+            m_ipRetryEvent = Simulator::Schedule(Seconds(2.5), &BlindConnectApp::RetryAdhocIp, this);
         } else {
-            // A/B域：正常切换到Adhoc域
-            Simulator::Cancel(m_rescanEvent);
-            m_inApRescan = false;
-            if (!m_hopEvent.IsRunning()) {
-                SwitchToNextChannel();
-            }
-
-            // 断开AP连接：清空STA SSID
-            Ptr<StaWifiMac> staMac = DynamicCast<StaWifiMac>(m_staDevice->GetMac());
-            if (staMac) {
-                staMac->SetSsid(Ssid(""));
-            }
-
-            // 切换Adhoc PHY到目标域信道
-            {
-                std::string ssidKey = bestNode.ssid.PeekString();
-                auto chanIt = m_adhocChannels.find(ssidKey);
-                if (chanIt != m_adhocChannels.end()) {
-                    Ptr<WifiPhy> adhocPhy = m_adhocDevice->GetPhy();
-                    Ptr<YansWifiPhy> yansPhy = DynamicCast<YansWifiPhy>(adhocPhy);
-                    if (yansPhy && yansPhy->GetChannel() != chanIt->second) {
-                        if (adhocPhy->IsStateTx() || adhocPhy->IsStateRx() ||
-                            adhocPhy->IsStateSwitching() || adhocPhy->IsStateSleep() ||
-                            adhocPhy->IsStateOff()) {
-                            Simulator::Schedule(MilliSeconds(5), &BlindConnectApp::ExecuteSwitch,
-                                                this, bestNode);
-                            return;
-                        }
-                        yansPhy->SetChannel(chanIt->second);
-                        uint8_t chNum = (bestNode.channelFreqMhz > 0)
-                            ? (bestNode.channelFreqMhz - 2407) / 5
-                            : 11;
-                        adhocPhy->SetOperatingChannel(chNum, bestNode.channelFreqMhz, 20);
-                        std::cout << Simulator::Now().GetSeconds()
-                                  << "s: [ExecuteSwitch] Adhoc信道对象已切换到 " << ssidKey
-                                  << " ch=" << (int)chNum << std::endl;
-                    }
-                }
-            }
-
-            // 清理STA侧IP socket
-            if (m_staIpSocket) {
-                m_staIpSocket->Close();
-                m_staIpSocket = nullptr;
-            }
-
-            // 离开AP域时清除旧IP
-            if (m_currentNetType != ScannedNodeInfo::TYPE_ADHOC
-                && m_assignedIp != Ipv4Address("0.0.0.0")) {
-                std::cout << Simulator::Now().GetSeconds()
-                          << "s: [ExecuteSwitch] 清除旧网络IP=" << m_assignedIp
-                          << " (进入Adhoc域)" << std::endl;
-                m_assignedIp = Ipv4Address("0.0.0.0");
-            }
-
-            // 根据gateway IP判断域ID，配置STA网卡
-            uint32_t domainId = 0;
-            if (bestNode.gateway.Get() >> 24 == 10) {
-                uint32_t secondOctet = (bestNode.gateway.Get() >> 16) & 0xFF;
-                if (secondOctet == 100) {
-                    uint32_t thirdOctet = (bestNode.gateway.Get() >> 8) & 0xFF;
-                    if (thirdOctet == 1) domainId = 1;
-                    else if (thirdOctet == 2) domainId = 2;
-                    else if (thirdOctet == 3) domainId = 3;
-                }
-            }
-            if (domainId > 0) {
-                ConfigureStaIpByDomain(domainId);
-            }
-
-            // Adhoc网卡保持link-local占位
-            {
-                Ptr<NetDevice> adhocIfDev = GetSocketAdhocDev();
-                int32_t adhocIfx = ipv4->GetInterfaceForDevice(adhocIfDev);
-                if (adhocIfx >= 0) {
-                    while (ipv4->GetNAddresses(adhocIfx) > 0) {
-                        ipv4->RemoveAddress(adhocIfx, 0);
-                    }
-                    ipv4->AddAddress(adhocIfx, Ipv4InterfaceAddress(
-                        Ipv4Address("169.254.2.1"), Ipv4Mask("255.255.0.0")));
-                    ipv4->SetUp(adhocIfx);
-                }
-            }
-
-            bool alreadyHasIp = (m_assignedIp != Ipv4Address("0.0.0.0"));
-
-            m_currentNetType = ScannedNodeInfo::TYPE_ADHOC;
-            m_currentSsid = bestNode.ssid;
-            m_currentHops = bestNode.hopsToGw + 1;
-            m_currentSnr = bestNode.snr;
-
-            // 确保Adhoc接口有临时IP
-            {
-                Ptr<NetDevice> adhocDev = GetSocketAdhocDev();
-                int32_t adhocIf = ipv4->GetInterfaceForDevice(adhocDev);
-                if (adhocIf >= 0 && ipv4->GetNAddresses(adhocIf) == 0) {
-                    ipv4->AddAddress(adhocIf, Ipv4InterfaceAddress(
-                        Ipv4Address("169.254.0.1"), Ipv4Mask("255.255.0.0")));
-                    ipv4->SetUp(adhocIf);
-                }
-            }
-
-            if (!m_broadcastSocket) {
-                m_broadcastSocket = Socket::CreateSocket(node, UdpSocketFactory::GetTypeId());
-                m_broadcastSocket->SetAllowBroadcast(true);
-                m_broadcastSocket->BindToNetDevice(GetSocketAdhocDev());
-                m_localHops = bestNode.hopsToGw;
-                SendPseudoBeacon();
-            }
-
-            if (!alreadyHasIp) {
-                m_ipRetryCount = 0;
-                m_ipReqEvent = Simulator::Schedule(MilliSeconds(500), &BlindConnectApp::RequestAdhocIp, this);
-                m_ipRetryEvent = Simulator::Schedule(Seconds(2.5), &BlindConnectApp::RetryAdhocIp, this);
-            } else {
-                std::cout << Simulator::Now().GetSeconds()
-                          << "s: [ExecuteSwitch] Adhoc IP已分配(" << m_assignedIp
-                          << "), 跳过重复请求" << std::endl;
-                ConfigureIpOnInterface(GetSocketAdhocDev(), m_assignedIp, m_assignedMask, m_assignedGw);
-            }
+            std::cout << Simulator::Now().GetSeconds()
+                      << "s: [ExecuteSwitch] Adhoc IP已分配(" << m_assignedIp
+                      << "), 跳过重复请求" << std::endl;
+            ConfigureIpOnInterface(GetSocketAdhocDev(), m_assignedIp, m_assignedMask, m_assignedGw);
         }
     }
 }
@@ -1368,13 +1287,18 @@ void BlindConnectApp::HandleAdhocIpMessage(const std::string& payload) {
     m_assignedMask = mask;
     m_assignedGw = gw;
 
+    // 更新Ad-Hoc软状态
+    m_adhocState.ip = ip;
+    m_adhocState.gw = gw;
+    m_adhocState.mask = mask;
+
     // 取消重试定时器
     Simulator::Cancel(m_ipRetryEvent);
     m_ipRetryCount = 0;
 
     ConfigureIpOnInterface(GetSocketAdhocDev(), ip, mask, gw);
 
-    // 根据Adhoc IP判断域ID，同步配置STA网卡（硬编码）
+    // 根据Adhoc IP判断域ID，同步配置STA网卡（双网卡维护）
     uint32_t domainId = 0;
     if (ip.Get() >> 24 == 10) {
         uint32_t secondOctet = (ip.Get() >> 16) & 0xFF;
@@ -1386,7 +1310,7 @@ void BlindConnectApp::HandleAdhocIpMessage(const std::string& payload) {
         }
     }
     if (domainId > 0) {
-        ConfigureStaIpByDomain(domainId);
+        ConfigureDualIpForDomain(domainId);
     }
 
     // 发送确认
@@ -1592,10 +1516,18 @@ void BlindConnectApp::ConfigureAdhocIpByDomain(uint32_t domainId) {
 
     ConfigureIpOnInterface(adhocDev, ip, mask, gw);
 
-    // 更新m_assignedIp等变量
-    m_assignedIp = ip;
-    m_assignedMask = mask;
-    m_assignedGw = gw;
+    // 更新Ad-Hoc软状态
+    m_adhocState.ip = ip;
+    m_adhocState.gw = gw;
+    m_adhocState.mask = mask;
+    m_adhocState.controlActive = true;
+
+    // 兼容旧逻辑：仅当Ad-Hoc数据面激活时更新全局状态
+    if (m_dataPlaneMode == DATA_PLANE_ADHOC) {
+        m_assignedIp = ip;
+        m_assignedMask = mask;
+        m_assignedGw = gw;
+    }
 }
 
 // --- 硬编码: 根据域ID配置 STA 网卡 (domainId: 1=A, 2=B, 3=C) ---
@@ -1629,10 +1561,144 @@ void BlindConnectApp::ConfigureStaIpByDomain(uint32_t domainId) {
 
     ConfigureIpOnInterface(staDev, ip, mask, gw);
 
-    // 更新m_assignedIp等变量
-    m_assignedIp = ip;
-    m_assignedMask = mask;
-    m_assignedGw = gw;
+    // 更新STA软状态
+    m_staState.ip = ip;
+    m_staState.gw = gw;
+    m_staState.mask = mask;
+    m_staState.controlActive = true;
+
+    // 兼容旧逻辑：更新m_assignedIp等变量（C域切换时使用）
+    if (m_dataPlaneMode == DATA_PLANE_AP) {
+        m_assignedIp = ip;
+        m_assignedMask = mask;
+        m_assignedGw = gw;
+    }
+}
+
+// --- 软休眠相关方法实现 ---
+
+void BlindConnectApp::EnsureBothInterfacesUp()
+{
+    Ptr<Node> node = GetNode();
+    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+
+    Ptr<NetDevice> staDev = GetSocketStaDev();
+    int32_t staIfx = ipv4->GetInterfaceForDevice(staDev);
+    if (staIfx >= 0 && !ipv4->IsUp(staIfx)) {
+        ipv4->SetUp(staIfx);
+        std::cout << Simulator::Now().GetSeconds() << "s: [EnsureBothUp] STA接口UP" << std::endl;
+    }
+
+    Ptr<NetDevice> adhocDev = GetSocketAdhocDev();
+    int32_t adhocIfx = ipv4->GetInterfaceForDevice(adhocDev);
+    if (adhocIfx >= 0 && !ipv4->IsUp(adhocIfx)) {
+        ipv4->SetUp(adhocIfx);
+        std::cout << Simulator::Now().GetSeconds() << "s: [EnsureBothUp] AdHoc接口UP" << std::endl;
+    }
+}
+
+void BlindConnectApp::ConfigureDualIpForDomain(uint32_t domainId)
+{
+    // 同时配置当前域的双网卡IP
+    ConfigureStaIpByDomain(domainId);
+    ConfigureAdhocIpByDomain(domainId);
+
+    // 更新当前域ID
+    m_currentDomainId = domainId;
+
+    // 确保两张接口都UP
+    EnsureBothInterfacesUp();
+
+    std::cout << Simulator::Now().GetSeconds()
+              << "s: [ConfigureDualIp] 域" << domainId
+              << " 双网卡配置完成: STA=" << m_staState.ip
+              << " AdHoc=" << m_adhocState.ip << std::endl;
+}
+
+void BlindConnectApp::SetDefaultRoute(Ptr<NetDevice> dev, Ipv4Address gw)
+{
+    if (!dev || gw == Ipv4Address("0.0.0.0")) return;
+
+    Ptr<Node> node = GetNode();
+    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+    int32_t ifx = ipv4->GetInterfaceForDevice(dev);
+    if (ifx < 0) return;
+
+    SetDefaultRouteVia(ipv4, ifx, gw);
+
+    std::cout << Simulator::Now().GetSeconds()
+              << "s: [SetDefaultRoute] 默认路由 -> " << gw
+              << " (iface=" << ifx << ")" << std::endl;
+}
+
+void BlindConnectApp::BindDataSocketsToActiveDevice(Ptr<NetDevice> dev)
+{
+    // 当前没有业务socket绑定，预留接口
+    // TODO: 如果有业务socket，在这里重新绑定到活跃设备
+}
+
+void BlindConnectApp::SetDataPlaneActive(DataPlaneMode mode)
+{
+    m_dataPlaneMode = mode;
+
+    if (mode == DATA_PLANE_AP) {
+        // AP数据面激活
+        m_staState.dataActive = true;
+        m_adhocState.dataActive = false;
+
+        // 切换默认路由到STA
+        SetDefaultRoute(m_staDevice, m_staState.gw);
+
+        // 业务socket绑定到STA
+        BindDataSocketsToActiveDevice(m_staDevice);
+
+        // 更新全局状态（兼容旧逻辑）
+        m_assignedIp = m_staState.ip;
+        m_assignedMask = m_staState.mask;
+        m_assignedGw = m_staState.gw;
+
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [SetDataPlaneActive] AP模式: STA数据激活, AdHoc数据静默" << std::endl;
+
+    } else {
+        // Ad-Hoc数据面激活
+        m_adhocState.dataActive = true;
+        m_staState.dataActive = false;
+
+        // 切换默认路由到Ad-Hoc
+        SetDefaultRoute(m_adhocDevice, m_adhocState.gw);
+
+        // 业务socket绑定到Ad-Hoc
+        BindDataSocketsToActiveDevice(m_adhocDevice);
+
+        // 更新全局状态（兼容旧逻辑）
+        m_assignedIp = m_adhocState.ip;
+        m_assignedMask = m_adhocState.mask;
+        m_assignedGw = m_adhocState.gw;
+
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [SetDataPlaneActive] AdHoc模式: AdHoc数据激活, STA数据静默" << std::endl;
+    }
+}
+
+uint32_t BlindConnectApp::GetDomainIdFromBestNode(const ScannedNodeInfo& node) const
+{
+    if (node.type == ScannedNodeInfo::TYPE_AP) {
+        std::string ssidStr(node.ssid.PeekString());
+        if (ssidStr == "A") return 1;
+        else if (ssidStr == "B") return 2;
+        else if (ssidStr == "C") return 3;
+    } else {
+        // Ad-Hoc类型，根据gateway IP判断域
+        uint32_t secondOctet = (node.gateway.Get() >> 16) & 0xFF;
+        if (secondOctet == 100) {
+            uint32_t thirdOctet = (node.gateway.Get() >> 8) & 0xFF;
+            if (thirdOctet == 1) return 1;
+            else if (thirdOctet == 2) return 2;
+            else if (thirdOctet == 3) return 3;
+        }
+    }
+    return 0;
 }
 
 // ========== 加密相关方法实现 ==========
