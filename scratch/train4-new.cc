@@ -944,6 +944,10 @@ int main(int argc, char *argv[])
     mobileApp->SetSocketStaDevice(mobileStaDev.Get(0));
     mobileApp->SetAdhocDevice(DynamicCast<WifiNetDevice>(mobileEmDev.Get(0)));
     mobileApp->SetSocketAdhocDevice(mobileEmDev.Get(0));
+    mobileApp->SetIpAllocatedCallback([controllerApp](Mac48Address mac, Ipv4Address ip) {
+        controllerApp->AddArpEntry(ip, mac);
+        std::cout << "注册移动节点ARP: " << ip << " -> " << mac << std::endl;
+    });
     mobileNode.Get(0)->AddApplication(mobileApp);
     mobileApp->SetStartTime(Seconds(1.5));
     mobileApp->SetStopTime(Seconds(simTime));
@@ -1156,6 +1160,8 @@ int main(int argc, char *argv[])
 
     monitor->SerializeToXmlFile("flowmon-results.xml", true, true);
     fout.close();
+
+    BlindConnectApp::PrintMessageLog();
 
     Simulator::Destroy();
     return 0;

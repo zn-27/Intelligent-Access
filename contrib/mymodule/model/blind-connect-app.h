@@ -65,6 +65,11 @@ public:
   typedef std::function<void(Mac48Address, Ipv4Address)> IpAllocatedCallback;
   void SetIpAllocatedCallback(IpAllocatedCallback cb);
 
+  // 报文时间撮日志（仿真结束汇总打印）
+  static void LogMessage(const std::string& type, double timestamp, uint32_t domainId = 0);
+  static void LogMessageOnce(const std::string& type, double timestamp, const std::string& dedupKey, uint32_t domainId = 0);
+  static void PrintMessageLog();
+
   void SetStaDevice(Ptr<WifiNetDevice> dev);
   void SetAdhocDevice(Ptr<WifiNetDevice> dev);
   void SetRole(AppRole role);
@@ -166,9 +171,12 @@ private:
   EventId m_hopEvent;
   EventId m_evalEvent;
   EventId m_rescanEvent;          // AP域周期性信道重扫
-  EventId m_ipRetryEvent;         // IP请求重试定时器
-  EventId m_ipReqEvent;           // 首次IP请求的延迟定时器(切换时需取消)
-  int m_ipRetryCount;             // IP请求重试次数
+  EventId m_ipRetryEvent;         // STA IP请求重试定时器
+  EventId m_ipReqEvent;           // STA首次IP请求的延迟定时器
+  EventId m_adhocIpRetryEvent;    // Adhoc IP请求重试定时器
+  EventId m_adhocIpReqEvent;      // Adhoc首次IP请求的延迟定时器
+  int m_ipRetryCount;             // STA IP请求重试次数
+  int m_adhocIpRetryCount;        // Adhoc IP请求重试次数
   Time m_dwellTime;
   Time m_lastSwitchTime;           // 上次切换时间，防止频繁切换
 
@@ -203,6 +211,7 @@ private:
 
   // --- Terminal IP 请求 ---
   Ptr<Socket> m_staIpSocket;
+  Ptr<Socket> m_adhocIpSocket;
   Ipv4Address m_assignedIp;
   Ipv4Mask m_assignedMask;
   Ipv4Address m_assignedGw;
@@ -230,6 +239,10 @@ private:
 
   // --- SDN 回调 ---
   IpAllocatedCallback m_ipAllocatedCallback;                   // IP 分配成功时通知控制器
+
+  // --- 报文时间撮日志 (static, 跨所有实例共享) ---
+  struct LogEntry { double ts; uint32_t domain; };
+  static std::map<std::string, std::vector<LogEntry>> s_messageLog;
 
   // --- 内部辅助：获取 socket 绑定用的设备（优先 VND，退化原生）---
   Ptr<NetDevice> GetSocketStaDev() const {
