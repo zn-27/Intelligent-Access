@@ -66,8 +66,8 @@ public:
   void SetIpAllocatedCallback(IpAllocatedCallback cb);
 
   // 报文时间撮日志（仿真结束汇总打印）
-  static void LogMessage(const std::string& type, double timestamp, uint32_t domainId = 0);
-  static void LogMessageOnce(const std::string& type, double timestamp, const std::string& dedupKey, uint32_t domainId = 0);
+  static void LogMessage(const std::string& type, double timestamp, uint32_t domainId = 0, const std::string& device = "");
+  static void LogMessageOnce(const std::string& type, double timestamp, const std::string& dedupKey, uint32_t domainId = 0, const std::string& device = "");
   static void PrintMessageLog();
 
   void SetStaDevice(Ptr<WifiNetDevice> dev);
@@ -141,6 +141,10 @@ private:
   void SetDefaultRoute(Ptr<NetDevice> dev, Ipv4Address gw);
   void BindDataSocketsToActiveDevice(Ptr<NetDevice> dev);
   uint32_t GetDomainIdFromBestNode(const ScannedNodeInfo& node) const;
+
+  // 延迟发送辅助（确保时间戳顺序：REQUEST < OFFER < CONFIRM）
+  void SendDelayedStaIpOffer(std::string resp, Mac48Address dstMac);
+  void SendDelayedIpConfirm(std::string resp, Ipv4Address ip, uint32_t domId);
 
   // --- 加密操作 ---
   void InitCrypto();                                           // 初始化加密子系统
@@ -241,7 +245,7 @@ private:
   IpAllocatedCallback m_ipAllocatedCallback;                   // IP 分配成功时通知控制器
 
   // --- 报文时间撮日志 (static, 跨所有实例共享) ---
-  struct LogEntry { double ts; uint32_t domain; };
+  struct LogEntry { double ts; uint32_t domain; std::string device; };
   static std::map<std::string, std::vector<LogEntry>> s_messageLog;
 
   // --- 内部辅助：获取 socket 绑定用的设备（优先 VND，退化原生）---
