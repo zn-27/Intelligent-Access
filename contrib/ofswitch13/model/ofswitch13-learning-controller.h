@@ -172,7 +172,8 @@ namespace ns3
         void AddArpEntry(Ipv4Address ip, Mac48Address mac) {
             m_arpTable[ip] = mac;
         }
-        
+        void RegisterHost(uint64_t dpId, Ipv4Address ip, Mac48Address mac, uint32_t port);
+
         // Q学习核心：周期性决策（暴露给仿真脚本，可直接调度）
         void PeriodicDecisionMaking();
 

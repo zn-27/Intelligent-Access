@@ -31,40 +31,13 @@
 #include "ns3/ipv4-flow-classifier.h"
 #include "ns3/ipv4-address.h"
 #include "ns3/ap-app-module.h"
-#include "ns3/blind-connect-app.h"
-#include "ns3/blind-connect-helper.h"
 #include <cstdint>
 #include <string>
 #include <map>
 #include <sstream>
 #include <fstream>
 #include <cmath>
-#include <set>
 using namespace ns3;
-
-struct FirstDataRxContext
-{
-    Ipv4Address dstIp;
-    uint32_t domainId;
-    std::string iface;
-};
-
-static std::set<uint16_t> g_firstDataRxPorts;
-static std::map<uint16_t, FirstDataRxContext> g_firstDataRxContexts;
-
-static void
-LogFirstDataRx(uint16_t port, Ptr<const Packet> packet, const Address& from)
-{
-    if (g_firstDataRxPorts.count(port)) return;
-    g_firstDataRxPorts.insert(port);
-    const auto& ctx = g_firstDataRxContexts[port];
-    BlindConnectApp::LogExperimentEvent("FIRST_DATA_RX", ctx.domainId, ctx.iface, 0, ctx.dstIp, "",
-                                        "First Data Rx", "", 0.0, -1,
-                                        "port=" + std::to_string(port));
-    std::cout << Simulator::Now().GetSeconds()
-              << "s: [Experiment] FIRST_DATA_RX port=" << port
-              << " dst=" << ctx.dstIp << " size=" << packet->GetSize() << std::endl;
-}
 
 // AP 关联 trace 回调（诊断用）
 static void
@@ -148,8 +121,8 @@ bool ApWifiToVirtualDevForward(Ptr<VirtualNetDevice> vdev, Ptr<NetDevice> dev,
 // ---------------------------------------------------------
 // FlowMonitor 相关
 // ---------------------------------------------------------
-std::map<uint16_t, uint64_t> lastRxBytesByPort;
-std::map<uint16_t, double> lastAvgDelayByPort;
+std::map<uint32_t, double> lastRxBytes;
+std::map<uint32_t, double> lastPacketRtt;
 
 void MonitorFlow(Ptr<FlowMonitor> monitor, FlowMonitorHelper *flowHelper, double interval, std::ofstream *fout)
 {
@@ -163,34 +136,32 @@ void MonitorFlow(Ptr<FlowMonitor> monitor, FlowMonitorHelper *flowHelper, double
     std::vector<uint16_t> ports = {9, 10, 11, 12, 13, 14, 15};
     for (auto port : ports)
     {
-        uint64_t txPackets = 0, rxPackets = 0, rxBytes = 0, lostPackets = 0;
-        Time delaySum = Seconds(0);
-
+        FlowId fid = 0;
         for (auto const &flow : stats)
         {
             Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(flow.first);
-            if (t.destinationPort != port) continue;
-            const FlowMonitor::FlowStats& fs = flow.second;
-            txPackets += fs.txPackets;
-            rxPackets += fs.rxPackets;
-            rxBytes += fs.rxBytes;
-            lostPackets += fs.lostPackets;
-            delaySum += fs.delaySum;
+            if (t.destinationPort == port) { fid = flow.first; break; }
         }
 
-        uint64_t rxBytesDelta = rxBytes;
-        if (lastRxBytesByPort.count(port)) rxBytesDelta -= lastRxBytesByPort[port];
-        lastRxBytesByPort[port] = rxBytes;
-
-        double throughput = rxBytesDelta * 8.0 / (interval * 1024.0);
-        double lossRate = (txPackets > 0) ? 100.0 * (txPackets - rxPackets) / txPackets : 0.0;
-        double avgDelay = (rxPackets > 0) ? delaySum.GetSeconds() / rxPackets * 1000.0 : 0.0;
-        double jitter = 0.0;
-        if (lastAvgDelayByPort.count(port)) jitter = std::abs(avgDelay - lastAvgDelayByPort[port]);
-        lastAvgDelayByPort[port] = avgDelay;
-
-        *fout << "," << throughput << "," << lossRate << "," << avgDelay << "," << jitter
-              << "," << txPackets << "," << rxPackets << "," << rxBytes << "," << lostPackets;
+        double throughput = 0.0, lossRate = 0.0, avgRtt = 0.0, jitter = 0.0;
+        if (fid != 0 && stats.count(fid))
+        {
+            FlowMonitor::FlowStats flowStats = stats[fid];
+            double rxBytesDelta = flowStats.rxBytes;
+            if (lastRxBytes.count(fid)) rxBytesDelta -= lastRxBytes[fid];
+            throughput = rxBytesDelta * 8.0 / (interval * 1024.0);
+            lastRxBytes[fid] = flowStats.rxBytes;
+            if (flowStats.txPackets > 0)
+                lossRate = 100.0 * (flowStats.txPackets - flowStats.rxPackets) / flowStats.txPackets;
+            if (flowStats.rxPackets > 0)
+            {
+                avgRtt = flowStats.delaySum.GetSeconds() / flowStats.rxPackets * 1000.0;
+                double packetRtt = avgRtt;
+                if (lastPacketRtt.count(fid)) jitter = std::abs(packetRtt - lastPacketRtt[fid]);
+                lastPacketRtt[fid] = packetRtt;
+            }
+        }
+        *fout << "," << throughput << "," << lossRate << "," << avgRtt << "," << jitter;
     }
     *fout << std::endl;
     Simulator::Schedule(Seconds(interval), &MonitorFlow, monitor, flowHelper, interval, fout);
@@ -217,55 +188,16 @@ void InjectAdhocNeighbors(Ptr<SwitchProtocolInfoApp> sw3App,
     }
 }
 
-// ---------------------------------------------------------
-// 移动节点状态日志回调
-// ---------------------------------------------------------
-static void
-PrintMobileNodeStatus(Ptr<Node> node, Ptr<BlindConnectApp> app)
-{
-    Ptr<MobilityModel> mob = node->GetObject<MobilityModel>();
-    Vector pos = mob->GetPosition();
-    const char* netTypeStr = (app->GetCurrentNetType() == (int)BlindConnectApp::ScannedNodeInfo::TYPE_AP)
-                             ? "AP" : "Adhoc";
-    std::cout << "[Mobile@" << Simulator::Now().GetSeconds() << "s]"
-              << " Pos=(" << pos.x << "," << pos.y << ")"
-              << " Net=" << netTypeStr
-              << " SNR=" << app->GetCurrentSnr() << "dBm"
-              << " App.IP=" << app->GetAssignedIp();
-    // 打印所有接口的真实 IP（诊断是否真正切换）
-    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
-    if (ipv4) {
-        std::cout << " | Ifaces:";
-        for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
-            if (ipv4->GetNAddresses(i) == 0) continue;
-            Ipv4Address a = ipv4->GetAddress(i, 0).GetLocal();
-            if (a == Ipv4Address::GetLoopback()) continue;
-            std::cout << " if" << i << "=" << a
-                      << (ipv4->IsUp(i) ? "(UP)" : "(DOWN)");
-        }
-    }
-    std::cout << std::endl;
-    Simulator::Schedule(Seconds(2.0), &PrintMobileNodeStatus, node, app);
-}
-
 int main(int argc, char *argv[])
 {
-    uint16_t simTime = 60;
+    uint16_t simTime = 30;
     bool verbose = true;
     bool trace = false;
-    double mobileSpeed = 8.0;
-    bool enableSoftSwitch = true;
-    std::string experimentMode = "join";
-    std::string flowProfile = "c-adhoc";
 
     CommandLine cmd;
     cmd.AddValue("simTime", "simulate time", simTime);
     cmd.AddValue("verbose", "enable verbose logs", verbose);
     cmd.AddValue("trace", "enable trace /pcap", trace);
-    cmd.AddValue("mobileSpeed", "mobile node speed in m/s", mobileSpeed);
-    cmd.AddValue("enableSoftSwitch", "keep both interfaces up and switch data plane only", enableSoftSwitch);
-    cmd.AddValue("experimentMode", "experiment mode label for output", experimentMode);
-    cmd.AddValue("flowProfile", "traffic profile selector", flowProfile);
     cmd.Parse(argc, argv);
 
     // 启用校验和计算（ofswitch13 模块所需）
@@ -278,14 +210,10 @@ int main(int argc, char *argv[])
     NodeContainer StaB;  StaB.Create(2);
     NodeContainer StaC;  StaC.Create(3);
 
-    // 移动节点：从最左侧穿越域A→域C→域B
-    NodeContainer mobileNode; mobileNode.Create(1);
-
     NodeContainer wifiStaNodes;
     wifiStaNodes.Add(StaA);
     wifiStaNodes.Add(StaB);
     wifiStaNodes.Add(StaC);
-    wifiStaNodes.Add(mobileNode);
 
     Ptr<Node> sw1 = CreateObject<Node>();
     Ptr<Node> sw2 = CreateObject<Node>();
@@ -330,6 +258,8 @@ int main(int argc, char *argv[])
     // =========================================================
     // 4. 域内专属 Adhoc WiFi (Port 3 基础) -- 每域独立信道
     // =========================================================
+    WifiMacHelper domainAdhocMac;
+    domainAdhocMac.SetType("ns3::AdhocWifiMac");
 
     // 域 A 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperA = YansWifiChannelHelper::Default();
@@ -341,10 +271,8 @@ int main(int argc, char *argv[])
     domainPhyA.Set("TxGain", DoubleValue(10.0));
     domainPhyA.Set("RxGain", DoubleValue(10.0));
 
-    WifiMacHelper domainAdhocMacA;
-    domainAdhocMacA.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-A")));
-    NetDeviceContainer sw1EmDev = wifi.Install(domainPhyA, domainAdhocMacA, sw1);
-    NetDeviceContainer staEmDevsA = wifi.Install(domainPhyA, domainAdhocMacA, StaA);
+    NetDeviceContainer sw1EmDev = wifi.Install(domainPhyA, domainAdhocMac, sw1);
+    NetDeviceContainer staEmDevsA = wifi.Install(domainPhyA, domainAdhocMac, StaA);
 
     // 域 B 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperB = YansWifiChannelHelper::Default();
@@ -356,10 +284,8 @@ int main(int argc, char *argv[])
     domainPhyB.Set("TxGain", DoubleValue(10.0));
     domainPhyB.Set("RxGain", DoubleValue(10.0));
 
-    WifiMacHelper domainAdhocMacB;
-    domainAdhocMacB.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-B")));
-    NetDeviceContainer sw2EmDev = wifi.Install(domainPhyB, domainAdhocMacB, sw2);
-    NetDeviceContainer staEmDevsB = wifi.Install(domainPhyB, domainAdhocMacB, StaB);
+    NetDeviceContainer sw2EmDev = wifi.Install(domainPhyB, domainAdhocMac, sw2);
+    NetDeviceContainer staEmDevsB = wifi.Install(domainPhyB, domainAdhocMac, StaB);
 
     // 域 C 专属 Adhoc 信道
     YansWifiChannelHelper domainChHelperC = YansWifiChannelHelper::Default();
@@ -371,70 +297,62 @@ int main(int argc, char *argv[])
     domainPhyC.Set("TxGain", DoubleValue(10.0));
     domainPhyC.Set("RxGain", DoubleValue(10.0));
 
-    WifiMacHelper domainAdhocMacC;
-    domainAdhocMacC.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-C")));
-    NetDeviceContainer sw3EmDev = wifi.Install(domainPhyC, domainAdhocMacC, sw3);
-    NetDeviceContainer staEmDevsC = wifi.Install(domainPhyC, domainAdhocMacC, StaC);
-    // 域C Adhoc 锁定 ch11，与 mobileEmDev 同频（SSID="Adhoc-C" 已在 MAC Helper 创建时设好）
-    DynamicCast<WifiNetDevice>(sw3EmDev.Get(0))->GetPhy()->SetOperatingChannel(11, 2462, 20);
+    NetDeviceContainer sw3EmDev = wifi.Install(domainPhyC, domainAdhocMac, sw3);
+    NetDeviceContainer staEmDevsC = wifi.Install(domainPhyC, domainAdhocMac, StaC);
 
     // =========================================================
-    // 5. 共享 AP WiFi 信道 (三域共用同一物理介质，通过频道号 ch1/6/11 隔离)
+    // 5. 域 A: STA StaWifiMac + Switch ApWifiMac
     // =========================================================
-    Ptr<YansWifiChannel> apChannel = channel.Create();
-    YansWifiPhyHelper phyAp;
-    phyAp.SetChannel(apChannel);
-    phyAp.Set("TxPowerStart", DoubleValue(33.0));
-    phyAp.Set("TxPowerEnd", DoubleValue(33.0));
-    phyAp.Set("TxGain", DoubleValue(10.0));
-    phyAp.Set("RxGain", DoubleValue(10.0));
-
-    // 域 A: SSID "A", AP 频道 1
+    Ptr<YansWifiChannel> channelA = channel.Create();
+    YansWifiPhyHelper phyA;
+    phyA.SetChannel(channelA);
+    phyA.Set("TxPowerStart", DoubleValue(33.0));
+    phyA.Set("TxPowerEnd", DoubleValue(33.0));
+    phyA.Set("TxGain", DoubleValue(10.0));
+    phyA.Set("RxGain", DoubleValue(10.0));
     Ssid ssidA = Ssid("A");
+
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssidA));
-    NetDeviceContainer staWifiDevsA = wifi.Install(phyAp, mac, StaA);
+    NetDeviceContainer staWifiDevsA = wifi.Install(phyA, mac, StaA);
+
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssidA));
-    NetDeviceContainer apWifiDevsA = wifi.Install(phyAp, mac, sw1);
+    NetDeviceContainer apWifiDevsA = wifi.Install(phyA, mac, sw1);
 
-    // 域 B: SSID "B", AP 频道 6
+    // =========================================================
+    // 6. 域 B: STA StaWifiMac + Switch ApWifiMac
+    // =========================================================
+    Ptr<YansWifiChannel> channelB = channel.Create();
+    YansWifiPhyHelper phyB;
+    phyB.SetChannel(channelB);
+    phyB.Set("TxPowerStart", DoubleValue(33.0));
+    phyB.Set("TxPowerEnd", DoubleValue(33.0));
+    phyB.Set("TxGain", DoubleValue(10.0));
+    phyB.Set("RxGain", DoubleValue(10.0));
     Ssid ssidB = Ssid("B");
+
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssidB));
-    NetDeviceContainer staWifiDevsB = wifi.Install(phyAp, mac, StaB);
+    NetDeviceContainer staWifiDevsB = wifi.Install(phyB, mac, StaB);
+
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssidB));
-    NetDeviceContainer apWifiDevsB = wifi.Install(phyAp, mac, sw2);
+    NetDeviceContainer apWifiDevsB = wifi.Install(phyB, mac, sw2);
 
-    // 域 C: SSID "C", AP 频道 11 (GATEWAY伪信标也在此频道发送)
+    // =========================================================
+    // 7. 域 C: STA StaWifiMac + Switch ApWifiMac
+    // =========================================================
+    Ptr<YansWifiChannel> channelC = channel.Create();
+    YansWifiPhyHelper phyC;
+    phyC.SetChannel(channelC);
+    phyC.Set("TxPowerStart", DoubleValue(33.0));
+    phyC.Set("TxPowerEnd", DoubleValue(33.0));
+    phyC.Set("TxGain", DoubleValue(10.0));
+    phyC.Set("RxGain", DoubleValue(10.0));
     Ssid ssidC = Ssid("C");
+
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssidC));
-    NetDeviceContainer staWifiDevsC = wifi.Install(phyAp, mac, StaC);
+    NetDeviceContainer staWifiDevsC = wifi.Install(phyC, mac, StaC);
+
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssidC));
-    NetDeviceContainer apWifiDevsC = wifi.Install(phyAp, mac, sw3);
-
-    // 设置各域 AP 的工作频道: A→ch1, B→ch6, C→ch11
-    DynamicCast<WifiNetDevice>(apWifiDevsA.Get(0))->GetPhy()->SetOperatingChannel(1, 2412, 20);
-    DynamicCast<WifiNetDevice>(apWifiDevsB.Get(0))->GetPhy()->SetOperatingChannel(6, 2437, 20);
-    DynamicCast<WifiNetDevice>(apWifiDevsC.Get(0))->GetPhy()->SetOperatingChannel(11, 2462, 20);
-    // 域内STA也锁定对应频道
-    for (uint32_t i = 0; i < staWifiDevsA.GetN(); ++i)
-        DynamicCast<WifiNetDevice>(staWifiDevsA.Get(i))->GetPhy()->SetOperatingChannel(1, 2412, 20);
-    for (uint32_t i = 0; i < staWifiDevsB.GetN(); ++i)
-        DynamicCast<WifiNetDevice>(staWifiDevsB.Get(i))->GetPhy()->SetOperatingChannel(6, 2437, 20);
-    for (uint32_t i = 0; i < staWifiDevsC.GetN(); ++i)
-        DynamicCast<WifiNetDevice>(staWifiDevsC.Get(i))->GetPhy()->SetOperatingChannel(11, 2462, 20);
-
-    // =========================================================
-    // 7b. 移动节点 WiFi 设备 (StaWifiMac + AdhocWifiMac)
-    //     StaWifiMac 共享AP信道跳频扫描 ch1/6/11 全部AP
-    //     AdhocWifiMac 在域C专属Adhoc信道 (domainChC，与GATEWAY Adhoc设备同信道)
-    //     GATEWAY 的 AdhocWifiMac 已设置SSID并发送真实IBSS信标，移动节点可完成同步
-    // =========================================================
-    mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(Ssid("Dummy")));
-    NetDeviceContainer mobileStaDev = wifi.Install(phyAp, mac, mobileNode);
-    // 移动节点Ad-Hoc网卡初始SSID为Adhoc-C，固定不变，始终监听C域伪Beacon
-    WifiMacHelper mobileAdhocMac;
-    mobileAdhocMac.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-C")));
-    NetDeviceContainer mobileEmDev  = wifi.Install(domainPhyC, mobileAdhocMac, mobileNode);
-    DynamicCast<WifiNetDevice>(mobileEmDev.Get(0))->GetPhy()->SetOperatingChannel(11, 2462, 20);
+    NetDeviceContainer apWifiDevsC = wifi.Install(phyC, mac, sw3);
 
     // =========================================================
     // 8. 为每个 Switch 创建 3 个 VirtualNetDevice (Port 1/2/3)
@@ -530,25 +448,18 @@ int main(int argc, char *argv[])
     // =========================================================
     // 11. Internet 协议栈
     // =========================================================
+    InternetStackHelper stack;
     Ipv4StaticRoutingHelper staticRoutingHelper;
 
-    // 静态 STA：AODV+静态路由（OLSR 去掉，避免 0.0.0.0 断言崩溃）
     InternetStackHelper stack2;
     Ipv4ListRoutingHelper list;
     AodvHelper aodv;
+    OlsrHelper olsr;
     list.Add(aodv, 10);
+    list.Add(olsr, 10);
     list.Add(staticRoutingHelper, 100);
     stack2.SetRoutingHelper(list);
-    NodeContainer staticStaNodes;
-    staticStaNodes.Add(StaA);
-    staticStaNodes.Add(StaB);
-    staticStaNodes.Add(StaC);
-    stack2.Install(staticStaNodes);
-
-    // 移动节点：纯静态路由
-    InternetStackHelper stackMobile;
-    stackMobile.SetRoutingHelper(staticRoutingHelper);
-    stackMobile.Install(mobileNode);
+    stack2.Install(wifiStaNodes);
 
     // Switch 节点不需要额外协议栈 (InstallSwitch 已安装基础栈)
     // 启用 IP 转发
@@ -563,7 +474,7 @@ int main(int argc, char *argv[])
     // =========================================================
     Ipv4AddressHelper ipv4;
 
-    // 域 A: STA + AP VND (Port 1) + 原生AP设备(BlindConnectApp socket绑定)
+    // 域 A: STA + AP VND (Port 1)
     Ipv4InterfaceContainer ifStaA, ifApA;
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     {
@@ -572,10 +483,9 @@ int main(int argc, char *argv[])
             netA.Add(staWifiDevsA.Get(i));
         ifStaA = ipv4.Assign(netA);
         ifApA = ipv4.Assign(NetDeviceContainer(sw1Vnds.apVnd));  // 网关 IP 在 Port 1 VND
-        ipv4.Assign(NetDeviceContainer(apWifiDevsA.Get(0)));     // 原生AP设备也需要IP
     }
 
-    // 域 B: STA + AP VND (Port 1) + 原生AP设备
+    // 域 B: STA + AP VND (Port 1)
     Ipv4InterfaceContainer ifStaB, ifApB;
     ipv4.SetBase("10.2.1.0", "255.255.255.0");
     {
@@ -584,10 +494,9 @@ int main(int argc, char *argv[])
             netB.Add(staWifiDevsB.Get(i));
         ifStaB = ipv4.Assign(netB);
         ifApB = ipv4.Assign(NetDeviceContainer(sw2Vnds.apVnd));
-        ipv4.Assign(NetDeviceContainer(apWifiDevsB.Get(0)));
     }
 
-    // 域 C: STA + AP VND (Port 1) + 原生AP设备
+    // 域 C: STA + AP VND (Port 1)
     Ipv4InterfaceContainer ifStaC, ifApC;
     ipv4.SetBase("10.3.1.0", "255.255.255.0");
     {
@@ -596,24 +505,6 @@ int main(int argc, char *argv[])
             netC.Add(staWifiDevsC.Get(i));
         ifStaC = ipv4.Assign(netC);
         ifApC = ipv4.Assign(NetDeviceContainer(sw3Vnds.apVnd));
-        ipv4.Assign(NetDeviceContainer(apWifiDevsC.Get(0)));
-    }
-
-    // 移动节点: StaWifiMac + AdhocWifiMac 均初始化为 link-local 占位 (169.254.x.x)
-    // 防止 ns-3 内部 GetAddress(0) 因 0.0.0.0 触发 FATAL 崩溃
-    // BlindConnectApp 跨域切换时会清除旧地址并分配真实 IP / 回退 link-local
-    // 注意: InternetStackHelper::Install 不会自动为 WiFi 设备创建 Ipv4 接口,
-    //       必须先调用 AddInterface() 再 AddAddress()
-    {
-        Ptr<Ipv4> ipv4h = mobileNode.Get(0)->GetObject<Ipv4>();
-        int32_t ifIdx = ipv4h->GetInterfaceForDevice(mobileStaDev.Get(0));
-        if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileStaDev.Get(0));
-        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("169.254.1.1"), Ipv4Mask("255.255.0.0")));
-        ipv4h->SetUp(ifIdx);
-        ifIdx = ipv4h->GetInterfaceForDevice(mobileEmDev.Get(0));
-        if (ifIdx < 0) ifIdx = ipv4h->AddInterface(mobileEmDev.Get(0));
-        ipv4h->AddAddress(ifIdx, Ipv4InterfaceAddress(Ipv4Address("169.254.2.1"), Ipv4Mask("255.255.0.0")));
-        ipv4h->SetUp(ifIdx);
     }
 
     // 骨干回传: Port 2 VND
@@ -708,9 +599,6 @@ int main(int argc, char *argv[])
     {
         Ptr<Node> node = wifiStaNodes.Get(i);
 
-        // 跳过移动节点（由 BlindConnectApp 管理）
-        if (node == mobileNode.Get(0)) continue;
-
         // 判断是否属于域 C
         bool isDomainC = false;
         for (uint32_t j = 0; j < StaC.GetN(); ++j)
@@ -749,18 +637,6 @@ int main(int argc, char *argv[])
                     ipv4Dev->SetDown(ifIdx);
                 }
             }
-        }
-    }
-
-    // 移动节点：两张网卡初始 UP（BlindConnectApp 需要 UP 才能收发）
-    {
-        Ptr<Node> mNode = mobileNode.Get(0);
-        Ptr<Ipv4> ipv4Mob = mNode->GetObject<Ipv4>();
-        for (uint32_t d = 0; d < mNode->GetNDevices(); d++) {
-            Ptr<WifiNetDevice> wdev = DynamicCast<WifiNetDevice>(mNode->GetDevice(d));
-            if (!wdev) continue;
-            uint32_t ifIdx = ipv4Mob->GetInterfaceForDevice(wdev);
-            if (ifIdx != uint32_t(-1)) ipv4Mob->SetUp(ifIdx);
         }
     }
 
@@ -810,20 +686,6 @@ int main(int argc, char *argv[])
     mobility.SetPositionAllocator(posC);
     mobility.Install(StaC);
 
-    // --- 移动节点：ConstantVelocityMobilityModel，从最左侧水平向右穿越 ---
-    {
-        MobilityHelper mobMobile;
-        mobMobile.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
-        Ptr<ListPositionAllocator> posMobile = CreateObject<ListPositionAllocator>();
-        posMobile->Add(Vector(-250.0, 200.0, 0.0));
-        mobMobile.SetPositionAllocator(posMobile);
-        mobMobile.Install(mobileNode);
-        Ptr<ConstantVelocityMobilityModel> cvmm =
-            mobileNode.Get(0)->GetObject<ConstantVelocityMobilityModel>();
-        cvmm->SetVelocity(Vector(mobileSpeed, 0.0, 0.0));
-        std::cout << "[Mobile] 初始位置: (-250, 200), 速度: (" << mobileSpeed << ", 0, 0)" << std::endl;
-    }
-
     // =========================================================
     // 14. ARP 注册到控制器
     // =========================================================
@@ -857,38 +719,17 @@ int main(int argc, char *argv[])
             std::cout << "注册ARP: Switch[" << i << "] 骨干 " << switchIp << " -> " << switchMac << std::endl;
         }
 
-        // 静态 STA ARP 注册
-        for (uint32_t i = 0; i < StaA.GetN(); ++i) {
-            controllerApp->AddArpEntry(ifStaA.GetAddress(i),
-                Mac48Address::ConvertFrom(staWifiDevsA.Get(i)->GetAddress()));
-        }
-        for (uint32_t i = 0; i < StaB.GetN(); ++i) {
-            controllerApp->AddArpEntry(ifStaB.GetAddress(i),
-                Mac48Address::ConvertFrom(staWifiDevsB.Get(i)->GetAddress()));
-        }
-        for (uint32_t i = 0; i < StaC.GetN(); ++i) {
-            controllerApp->AddArpEntry(ifStaC.GetAddress(i),
-                Mac48Address::ConvertFrom(staWifiDevsC.Get(i)->GetAddress()));
-        }
-        for (uint32_t i = 0; i < StaC.GetN(); ++i) {
-            Ipv4Address adhocIp = emIfacesC.GetAddress(i + 1);
-            Mac48Address adhocMac = Mac48Address::ConvertFrom(staEmDevsC.Get(i)->GetAddress());
-            controllerApp->RegisterHost(3, adhocIp, adhocMac, 3);
-            std::cout << "注册ARP/Host: StaC[" << i << "] Adhoc " << adhocIp
-                      << " -> " << adhocMac << " port=3" << std::endl;
-        }
-
     // =========================================================
     // 15. SwitchProtocolInfoApp 安装（融合架构）
     // =========================================================
-    auto installSwitchApp = [&simTime](Ptr<Node> switchNode, Ptr<WifiNetDevice> apWifiDev, uint32_t portNo) {
+    auto installSwitchApp = [](Ptr<Node> switchNode, Ptr<WifiNetDevice> apWifiDev, uint32_t portNo) {
         Ptr<SwitchProtocolInfoApp> app = CreateObject<SwitchProtocolInfoApp>();
         Ptr<ApWifiMac> apMac = DynamicCast<ApWifiMac>(apWifiDev->GetMac());
         app->SetApMac(apMac);
         app->SetApPortNo(portNo);
         switchNode->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
-        app->SetStopTime(Seconds(simTime));
+        app->SetStopTime(Seconds(30.0));
         return app;
     };
 
@@ -909,99 +750,6 @@ int main(int argc, char *argv[])
     // t=2s：域 C 邻居发现 + ARP 直接注入控制器
     Simulator::Schedule(Seconds(2.0), &InjectAdhocNeighbors, sw3App, controllerApp);
 
-    // =========================================================
-    // 15c. BlindConnectApp 安装 — 动态入网与 IP 分配
-    // =========================================================
-
-    // --- 辅助：安装 ROLE_AP_SERVER (sw1/sw2, socket绑定原生AP设备) ---
-    auto installApServerApp = [&controllerApp, &simTime](Ptr<Node> switchNode,
-                                  Ptr<WifiNetDevice> rawApDev,
-                                  Ipv4Address poolBase, Ipv4Address poolStart,
-                                  Ipv4Address poolEnd, Ipv4Mask poolMask) {
-        Ptr<BlindConnectApp> app = CreateObject<BlindConnectApp>();
-        app->SetRole(BlindConnectApp::ROLE_AP_SERVER);
-        app->SetStaDevice(rawApDev);
-        app->SetAttribute("PoolBase", Ipv4AddressValue(poolBase));
-        app->SetAttribute("PoolStart", Ipv4AddressValue(poolStart));
-        app->SetAttribute("PoolEnd", Ipv4AddressValue(poolEnd));
-        app->SetAttribute("PoolMask", Ipv4MaskValue(poolMask));
-        app->SetIpAllocatedCallback([controllerApp](Mac48Address mac, Ipv4Address ip) {
-            controllerApp->AddArpEntry(ip, mac);
-        });
-        switchNode->AddApplication(app);
-        app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(simTime));
-        return app;
-    };
-
-    // --- 辅助：安装 ROLE_GATEWAY (伪信标走AP网卡, IP_REQUEST监听走Adhoc网卡) ---
-    auto installGatewayApp = [&controllerApp, &simTime](Ptr<Node> switchNode,
-                                Ptr<WifiNetDevice> staDev,
-                                Ptr<WifiNetDevice> rawEmDev,
-                                Ptr<VirtualNetDevice> emVnd,
-                                Ipv4Address poolBase, Ipv4Address poolStart,
-                                Ipv4Address poolEnd, Ipv4Mask poolMask) {
-        Ptr<BlindConnectApp> app = CreateObject<BlindConnectApp>();
-        app->SetRole(BlindConnectApp::ROLE_GATEWAY);
-        app->SetStaDevice(staDev);               // 伪信标通过AP网卡发送
-        app->SetAdhocDevice(rawEmDev);           // IP_REQUEST 通过Adhoc PHY监听
-        app->SetSocketAdhocDevice(emVnd);        // IP_OFFER 从VND发送(IP在此)
-        app->SetAdhocSsid(Ssid("Adhoc-C"));  // C域GATEWAY发送伪Beacon的SSID
-        app->SetAttribute("PoolBase", Ipv4AddressValue(poolBase));
-        app->SetAttribute("PoolStart", Ipv4AddressValue(poolStart));
-        app->SetAttribute("PoolEnd", Ipv4AddressValue(poolEnd));
-        app->SetAttribute("PoolMask", Ipv4MaskValue(poolMask));
-        app->SetIpAllocatedCallback([controllerApp](Mac48Address mac, Ipv4Address ip) {
-            controllerApp->AddArpEntry(ip, mac);
-        });
-        switchNode->AddApplication(app);
-        app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(simTime));
-        return app;
-    };
-
-    // --- 安装到 sw1 (域 A): ROLE_AP_SERVER ---
-    installApServerApp(sw1,
-        DynamicCast<WifiNetDevice>(apWifiDevsA.Get(0)),
-        Ipv4Address("10.1.1.0"), Ipv4Address("10.1.1.100"),
-        Ipv4Address("10.1.1.200"), Ipv4Mask("255.255.255.0"));
-
-    // --- 安装到 sw2 (域 B): ROLE_AP_SERVER ---
-    installApServerApp(sw2,
-        DynamicCast<WifiNetDevice>(apWifiDevsB.Get(0)),
-        Ipv4Address("10.2.1.0"), Ipv4Address("10.2.1.100"),
-        Ipv4Address("10.2.1.200"), Ipv4Mask("255.255.255.0"));
-
-    // --- 安装到 sw3 (域 C): ROLE_GATEWAY ---
-    installGatewayApp(sw3,
-        DynamicCast<WifiNetDevice>(apWifiDevsC.Get(0)),
-        DynamicCast<WifiNetDevice>(sw3EmDev.Get(0)), sw3Vnds.emVnd,
-        Ipv4Address("10.100.3.0"), Ipv4Address("10.100.3.10"),
-        Ipv4Address("10.100.3.50"), Ipv4Mask("255.255.255.0"));
-
-    // --- 安装到移动节点: ROLE_TERMINAL ---
-    Ptr<BlindConnectApp> mobileApp = CreateObject<BlindConnectApp>();
-    mobileApp->SetRole(BlindConnectApp::ROLE_TERMINAL);
-    mobileApp->SetStaDevice(DynamicCast<WifiNetDevice>(mobileStaDev.Get(0)));
-    mobileApp->SetSocketStaDevice(mobileStaDev.Get(0));
-    mobileApp->SetAdhocDevice(DynamicCast<WifiNetDevice>(mobileEmDev.Get(0)));
-    mobileApp->SetSocketAdhocDevice(mobileEmDev.Get(0));
-    mobileApp->SetIpAllocatedCallback([controllerApp](Mac48Address mac, Ipv4Address ip) {
-        controllerApp->AddArpEntry(ip, mac);
-        std::cout << "注册移动节点ARP: " << ip << " -> " << mac << std::endl;
-    });
-    mobileNode.Get(0)->AddApplication(mobileApp);
-    mobileApp->SetStartTime(Seconds(1.5));
-    mobileApp->SetStopTime(Seconds(simTime));
-
-    // 注册 Adhoc 域信道映射（SSID → YansWifiChannel），用于 ExecuteSwitch 动态切换
-    mobileApp->RegisterAdhocChannel("Adhoc-Net", domainChC);
-
-    std::cout << "[Mobile] BlindConnectApp 已安装 (ROLE_TERMINAL, start=1.5s)" << std::endl;
-
-    // 启动移动节点状态日志（t=3s 起，每 2s 一次）
-    Simulator::Schedule(Seconds(3.0), &PrintMobileNodeStatus, mobileNode.Get(0), mobileApp);
-
     } // end if (controllerApp != nullptr)
 
     // =========================================================
@@ -1019,7 +767,7 @@ int main(int argc, char *argv[])
             Ptr<ApWifiMac> apMac = DynamicCast<ApWifiMac>(apDevs[i]->GetMac());
             if (apMac)
             {
-                apMac->TraceConnectWithoutContext("AssociatedSta",
+                apMac->TraceConnectWithoutContext("AssocSta",
                     MakeBoundCallback(&AssocTraceCb, names[i]));
             }
         }
@@ -1039,8 +787,7 @@ int main(int argc, char *argv[])
     if (sw3Device)
         Simulator::Schedule(Seconds(5.0), &OFSwitch13Device::GetApStaMessages, sw3Device);
 
-    if (controllerApp)
-        Simulator::Schedule(Seconds(7.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
+    Simulator::Schedule(Seconds(7.0), &OFSwitch13LearningController::SetRoutingPriority, controllerApp);
 
     // =========================================================
     // 16b. 组网模式切换与路由优先级切换调度
@@ -1104,12 +851,12 @@ int main(int argc, char *argv[])
     // =========================================================
     if (true)
     {
-        phyAp.EnablePcap("A_sta", staWifiDevsA);
-        phyAp.EnablePcap("A_ap", apWifiDevsA);
-        phyAp.EnablePcap("B_sta", staWifiDevsB);
-        phyAp.EnablePcap("B_ap", apWifiDevsB);
-        phyAp.EnablePcap("C_sta", staWifiDevsC);
-        phyAp.EnablePcap("C_ap", apWifiDevsC);
+        phyA.EnablePcap("A_sta", staWifiDevsA);
+        phyA.EnablePcap("A_ap", apWifiDevsA);
+        phyB.EnablePcap("B_sta", staWifiDevsB);
+        phyB.EnablePcap("B_ap", apWifiDevsB);
+        phyC.EnablePcap("C_sta", staWifiDevsC);
+        phyC.EnablePcap("C_ap", apWifiDevsC);
         switchPhy.EnablePcap("switch-backhaul", NodeContainer(sw1, sw2, sw3));
         domainPhyA.EnablePcap("domainA-adhoc-sw", NodeContainer(sw1));
         domainPhyA.EnablePcap("domainA-adhoc-sta", StaA);
@@ -1117,8 +864,6 @@ int main(int argc, char *argv[])
         domainPhyB.EnablePcap("domainB-adhoc-sta", StaB);
         domainPhyC.EnablePcap("domainC-adhoc-sw", NodeContainer(sw3));
         domainPhyC.EnablePcap("domainC-adhoc-sta", StaC);
-        phyAp.EnablePcap("mobile-sta", mobileStaDev);
-        phyAp.EnablePcap("mobile-em", mobileEmDev);
         of13Helper->EnableOpenFlowPcap("openflow");
         of13Helper->EnableDatapathStats("switch-stats");
     }
@@ -1127,16 +872,6 @@ int main(int argc, char *argv[])
     // 19. UDP 流量应用（4条跨域流 )
     // =========================================================
     uint16_t basePort = 9;
-
-    PacketSinkHelper sink13("ns3::UdpSocketFactory",
-                            InetSocketAddress(Ipv4Address::GetAny(), basePort + 4));
-    ApplicationContainer sinkApps13 = sink13.Install(StaC.Get(2));
-    sinkApps13.Start(Seconds(0.0));
-    sinkApps13.Stop(Seconds(simTime));
-    Ptr<Application> sinkApp13 = sinkApps13.Get(0);
-    g_firstDataRxContexts[basePort + 4] = {emIfacesC.GetAddress(3), 3, "ADHOC"};
-    sinkApp13->TraceConnectWithoutContext(
-        "Rx", MakeBoundCallback(&LogFirstDataRx, basePort + 4));
 
     OnOffHelper onoff("ns3::UdpSocketFactory", Address());
     onoff.SetAttribute("DataRate", StringValue("1Mbps"));
@@ -1183,7 +918,7 @@ int main(int argc, char *argv[])
     std::ofstream fout("flow_stats.csv");
     fout << "Time";
     for (int i = 1; i <= 7; ++i)
-        fout << ",Throughput_" << i << "(Kbps),LossRate_" << i << "(%),AvgDelay_" << i << "(ms),Jitter_" << i << "(ms),TxPackets_" << i << ",RxPackets_" << i << ",RxBytes_" << i << ",LostPackets_" << i;
+        fout << ",Throughput_" << i << "(Kbps),LossRate_" << i << "(%),AvgRTT_" << i << "(ms),Jitter_" << i << "(ms)";
     fout << std::endl;
     Simulator::Schedule(Seconds(0.1), &MonitorFlow, monitor, &flowmonHelper, 1, &fout);
 
@@ -1212,9 +947,6 @@ int main(int argc, char *argv[])
 
     monitor->SerializeToXmlFile("flowmon-results.xml", true, true);
     fout.close();
-
-    BlindConnectApp::PrintMessageLog();
-    BlindConnectApp::ExportExperimentEvents("join_events.csv");
 
     Simulator::Destroy();
     return 0;

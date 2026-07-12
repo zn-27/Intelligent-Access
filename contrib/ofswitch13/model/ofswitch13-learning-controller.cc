@@ -138,6 +138,30 @@ namespace ns3
         }
     }
 
+    void
+    OFSwitch13LearningController::RegisterHost(uint64_t dpId, Ipv4Address ip, Mac48Address mac, uint32_t port)
+    {
+        HostInfo host{ip, mac, port};
+        m_arpTable[ip] = mac;
+        m_switchHosts[dpId].push_back(host);
+
+        uint32_t networkIpHost = ip.Get() & 0xFFFFFF00;
+        Ipv4Address networkIp(networkIpHost);
+        std::ostringstream subnet;
+        networkIp.Print(subnet);
+        m_subnetToSwitchMap[subnet.str() + "/24"] = dpId;
+
+        std::ostringstream cmd;
+        cmd << "flow-mod cmd=add,table=0,prio=200,idle=30,hard=60 "
+            << "eth_type=0x0800,ip_dst=" << ip << " "
+            << "apply:set_field=eth_dst:" << mac << ",output=" << port;
+        DpctlExecute(dpId, cmd.str());
+        GenerateCrossDomainRulesForAllSwitches();
+
+        std::cout << "[RegisterHost] DPID=" << dpId << " IP=" << ip
+                  << " MAC=" << mac << " Port=" << port << std::endl;
+    }
+
     ofl_err
     OFSwitch13LearningController::HandlePacketIn(
         struct ofl_msg_packet_in *msg, Ptr<const RemoteSwitch> swtch,
@@ -327,8 +351,7 @@ namespace ns3
                     //               << "[IPv4非广播包] 源IP: " << srcIp
                     //               << " | 目的IP: " << dstIp
                     //               << " | 入端口: " << inPort << std::endl;
-                    // }
-                    return 0;
+                    // IPv4包继续进入后续 L2/L3 学习和 PacketOut 逻辑。
                 }
             }
 

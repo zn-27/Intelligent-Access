@@ -19,6 +19,7 @@
 #include <list>
 #include <vector>
 #include <functional>
+#include <string>
 
 namespace ns3 {
 
@@ -69,6 +70,12 @@ public:
   static void LogMessage(const std::string& type, double timestamp, uint32_t domainId = 0, const std::string& device = "");
   static void LogMessageOnce(const std::string& type, double timestamp, const std::string& dedupKey, uint32_t domainId = 0, const std::string& device = "");
   static void PrintMessageLog();
+  static void LogExperimentEvent(const std::string& event, uint32_t domainId, const std::string& iface,
+                                 uint32_t txid = 0, Ipv4Address ip = Ipv4Address("0.0.0.0"),
+                                 const std::string& mac = "", const std::string& step = "",
+                                 const std::string& ssid = "", double snr = 0.0,
+                                 int hops = -1, const std::string& note = "");
+  static void ExportExperimentEvents(const std::string& path);
 
   void SetStaDevice(Ptr<WifiNetDevice> dev);
   void SetAdhocDevice(Ptr<WifiNetDevice> dev);
@@ -133,8 +140,8 @@ private:
   void HandleStaIpRead(Ptr<Socket> socket);
   void HandleApServerRead(Ptr<Socket> socket);
   void ConfigureIpOnInterface(Ptr<NetDevice> dev, Ipv4Address ip, Ipv4Mask mask, Ipv4Address gw);
-  void ConfigureAdhocIpByDomain(uint32_t domainId);  // 硬编码配置Adhoc网卡 (1=A, 2=B, 3=C)
-  void ConfigureStaIpByDomain(uint32_t domainId);    // 硬编码配置STA网卡 (1=A, 2=B, 3=C)
+  void ConfigureAdhocIpByDomain(uint32_t domainId);  // 仅保留兼容入口，不参与动态实验路径
+  void ConfigureStaIpByDomain(uint32_t domainId);    // 仅保留兼容入口，不参与动态实验路径
   void ConfigureDualIpForDomain(uint32_t domainId); // 同时配置当前域的双网卡IP
   void SetDataPlaneActive(DataPlaneMode mode);      // 设置数据面活跃网卡
   void EnsureBothInterfacesUp();                    // 确保两张接口都UP
@@ -145,6 +152,9 @@ private:
   // 延迟发送辅助（确保时间戳顺序：REQUEST < OFFER < CONFIRM）
   void SendDelayedStaIpOffer(std::string resp, Mac48Address dstMac);
   void SendDelayedIpConfirm(std::string resp, Ipv4Address ip, uint32_t domId);
+  uint32_t NextTxId();
+  bool IsExpectedStaOffer(const std::string& payload) const;
+  bool IsExpectedAdhocOffer(const std::string& payload) const;
 
   // --- 加密操作 ---
   void InitCrypto();                                           // 初始化加密子系统
@@ -181,6 +191,11 @@ private:
   EventId m_adhocIpReqEvent;      // Adhoc首次IP请求的延迟定时器
   int m_ipRetryCount;             // STA IP请求重试次数
   int m_adhocIpRetryCount;        // Adhoc IP请求重试次数
+  uint32_t m_nextTxId;
+  uint32_t m_pendingStaTxId;
+  uint32_t m_pendingAdhocTxId;
+  uint32_t m_pendingStaDomainId;
+  uint32_t m_pendingAdhocDomainId;
   Time m_dwellTime;
   Time m_lastSwitchTime;           // 上次切换时间，防止频繁切换
 
@@ -247,6 +262,21 @@ private:
   // --- 报文时间撮日志 (static, 跨所有实例共享) ---
   struct LogEntry { double ts; uint32_t domain; std::string device; };
   static std::map<std::string, std::vector<LogEntry>> s_messageLog;
+  struct ExperimentEvent {
+    double ts;
+    uint32_t domain;
+    std::string iface;
+    std::string event;
+    std::string step;
+    uint32_t txid;
+    std::string ip;
+    std::string mac;
+    std::string ssid;
+    double snr;
+    int hops;
+    std::string note;
+  };
+  static std::vector<ExperimentEvent> s_experimentEvents;
 
   // --- 内部辅助：获取 socket 绑定用的设备（优先 VND，退化原生）---
   Ptr<NetDevice> GetSocketStaDev() const {
