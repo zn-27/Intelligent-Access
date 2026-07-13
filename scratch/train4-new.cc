@@ -403,7 +403,7 @@ int main(int argc, char *argv[])
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssidB));
     NetDeviceContainer apWifiDevsB = wifi.Install(phyAp, mac, sw2);
 
-    // 域 C: SSID "C", AP 频道 11 (GATEWAY伪信标也在此频道发送)
+    // 域 C: SSID "C", AP 频道 11 (C域改为有中心AP模式)
     Ssid ssidC = Ssid("C");
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssidC));
     NetDeviceContainer staWifiDevsC = wifi.Install(phyAp, mac, StaC);
@@ -425,12 +425,13 @@ int main(int argc, char *argv[])
     // =========================================================
     // 7b. 移动节点 WiFi 设备 (StaWifiMac + AdhocWifiMac)
     //     StaWifiMac 共享AP信道跳频扫描 ch1/6/11 全部AP
-    //     AdhocWifiMac 在域C专属Adhoc信道 (domainChC，与GATEWAY Adhoc设备同信道)
-    //     GATEWAY 的 AdhocWifiMac 已设置SSID并发送真实IBSS信标，移动节点可完成同步
+    //     AdhocWifiMac 在域C专属Adhoc信道 (domainChC，作为应急回退预留)
+    //     域C改为有中心AP模式，移动节点通过STA网卡连接C域AP
     // =========================================================
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(Ssid("Dummy")));
     NetDeviceContainer mobileStaDev = wifi.Install(phyAp, mac, mobileNode);
-    // 移动节点Ad-Hoc网卡初始SSID为Adhoc-C，固定不变，始终监听C域伪Beacon
+    // 移动节点Ad-Hoc网卡初始SSID为Adhoc-C，作为应急回退预留
+    // C域已改为有中心AP模式，移动节点优先通过STA网卡连接C域AP
     WifiMacHelper mobileAdhocMac;
     mobileAdhocMac.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(Ssid("Adhoc-C")));
     NetDeviceContainer mobileEmDev  = wifi.Install(domainPhyC, mobileAdhocMac, mobileNode);
@@ -681,42 +682,35 @@ int main(int argc, char *argv[])
         sr->SetDefaultRoute(apBGateway, 1);
     }
 
-    // 域 C STA 默认路由 → sw3 的 Ad-Hoc VND 网关（初始无中心模式）
-    Ipv4Address emCGateway = emIfacesC.GetAddress(0);  // sw3 emVnd 的 IP
+    // 域 C STA 默认路由 → sw3 的 AP VND 网关（C域改为有中心AP模式）
+    Ipv4Address apCGateway = ifApC.GetAddress(0);  // sw3 apVnd 的 IP
     for (uint32_t i = 0; i < StaC.GetN(); ++i)
     {
         Ptr<Ipv4> ipv4h = StaC.Get(i)->GetObject<Ipv4>();
         Ptr<Ipv4StaticRouting> sr = staticRoutingHelper.GetStaticRouting(ipv4h);
-        // 动态找到 Ad-Hoc 设备的接口索引
+        // 动态找到 StaWifiMac 设备的接口索引
         for (uint32_t d = 0; d < StaC.Get(i)->GetNDevices(); d++)
         {
             Ptr<WifiNetDevice> wdev = DynamicCast<WifiNetDevice>(StaC.Get(i)->GetDevice(d));
-            if (wdev && DynamicCast<AdhocWifiMac>(wdev->GetMac()))
+            if (wdev && DynamicCast<StaWifiMac>(wdev->GetMac()))
             {
                 uint32_t ifIdx = ipv4h->GetInterfaceForDevice(wdev);
-                sr->SetDefaultRoute(emCGateway, ifIdx);
-                std::cout << "[Route] StaC[" << i << "] default -> " << emCGateway
+                sr->SetDefaultRoute(apCGateway, ifIdx);
+                std::cout << "[Route] StaC[" << i << "] default -> " << apCGateway
                           << " via ifIdx=" << ifIdx << std::endl;
                 break;
             }
         }
     }
 
-    // 域 A/B：禁用 STA 的 Ad-Hoc 接口（有中心模式）
-    // 域 C：启用 Ad-Hoc 接口，禁用 StaWifiMac（初始无中心模式）
+    // 域 A/B/C：禁用 STA 的 Ad-Hoc 接口（统一有中心AP模式）
+    // 域 C 不再特殊处理，所有域均 StaWifiMac UP, AdhocWifiMac DOWN
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i)
     {
         Ptr<Node> node = wifiStaNodes.Get(i);
 
         // 跳过移动节点（由 BlindConnectApp 管理）
         if (node == mobileNode.Get(0)) continue;
-
-        // 判断是否属于域 C
-        bool isDomainC = false;
-        for (uint32_t j = 0; j < StaC.GetN(); ++j)
-        {
-            if (node == StaC.Get(j)) { isDomainC = true; break; }
-        }
 
         for (uint32_t d = 0; d < node->GetNDevices(); d++)
         {
@@ -727,27 +721,10 @@ int main(int argc, char *argv[])
             uint32_t ifIdx = ipv4Dev->GetInterfaceForDevice(wdev);
             if (ifIdx == uint32_t(-1)) continue;
 
-            if (isDomainC)
+            // 所有域：Ad-Hoc DOWN
+            if (DynamicCast<AdhocWifiMac>(wdev->GetMac()))
             {
-                // 域 C：Ad-Hoc UP，StaWifiMac DOWN
-                if (DynamicCast<AdhocWifiMac>(wdev->GetMac()))
-                {
-                    ipv4Dev->SetUp(ifIdx);
-                    std::cout << "[Init] StaC node Ad-Hoc UP (ifIdx=" << ifIdx << ")" << std::endl;
-                }
-                else if (DynamicCast<StaWifiMac>(wdev->GetMac()))
-                {
-                    ipv4Dev->SetDown(ifIdx);
-                    std::cout << "[Init] StaC node StaWifiMac DOWN (ifIdx=" << ifIdx << ")" << std::endl;
-                }
-            }
-            else
-            {
-                // 域 A/B：Ad-Hoc DOWN（原逻辑）
-                if (DynamicCast<AdhocWifiMac>(wdev->GetMac()))
-                {
-                    ipv4Dev->SetDown(ifIdx);
-                }
+                ipv4Dev->SetDown(ifIdx);
             }
         }
     }
@@ -899,15 +876,8 @@ int main(int argc, char *argv[])
     Ptr<SwitchProtocolInfoApp> sw3App = installSwitchApp(sw3,
         DynamicCast<WifiNetDevice>(apWifiDevsC.Get(0)), 1);
 
-    // sw3 额外配置：Ad-Hoc 邻居发现（域 C 初始无中心模式）
-    sw3App->SetAdhocMac(DynamicCast<AdhocWifiMac>(
-        DynamicCast<WifiNetDevice>(sw3EmDev.Get(0))->GetMac()));
-    sw3App->SetAdhocPortNo(3);  // Port 3 = 域内 Ad-Hoc VND
-    sw3App->SetAdhocChannelDevices(staEmDevsC);
-    sw3App->SetInitialAdhocMode(true);
-
-    // t=2s：域 C 邻居发现 + ARP 直接注入控制器
-    Simulator::Schedule(Seconds(2.0), &InjectAdhocNeighbors, sw3App, controllerApp);
+    // sw3 域C：改为有中心AP模式，不再配置 Ad-Hoc 邻居发现
+    // (Ad-Hoc 设备保留但处于 DOWN 状态，作为应急回退预留)
 
     // =========================================================
     // 15c. BlindConnectApp 安装 — 动态入网与 IP 分配
@@ -934,32 +904,6 @@ int main(int argc, char *argv[])
         return app;
     };
 
-    // --- 辅助：安装 ROLE_GATEWAY (伪信标走AP网卡, IP_REQUEST监听走Adhoc网卡) ---
-    auto installGatewayApp = [&controllerApp, &simTime](Ptr<Node> switchNode,
-                                Ptr<WifiNetDevice> staDev,
-                                Ptr<WifiNetDevice> rawEmDev,
-                                Ptr<VirtualNetDevice> emVnd,
-                                Ipv4Address poolBase, Ipv4Address poolStart,
-                                Ipv4Address poolEnd, Ipv4Mask poolMask) {
-        Ptr<BlindConnectApp> app = CreateObject<BlindConnectApp>();
-        app->SetRole(BlindConnectApp::ROLE_GATEWAY);
-        app->SetStaDevice(staDev);               // 伪信标通过AP网卡发送
-        app->SetAdhocDevice(rawEmDev);           // IP_REQUEST 通过Adhoc PHY监听
-        app->SetSocketAdhocDevice(emVnd);        // IP_OFFER 从VND发送(IP在此)
-        app->SetAdhocSsid(Ssid("Adhoc-C"));  // C域GATEWAY发送伪Beacon的SSID
-        app->SetAttribute("PoolBase", Ipv4AddressValue(poolBase));
-        app->SetAttribute("PoolStart", Ipv4AddressValue(poolStart));
-        app->SetAttribute("PoolEnd", Ipv4AddressValue(poolEnd));
-        app->SetAttribute("PoolMask", Ipv4MaskValue(poolMask));
-        app->SetIpAllocatedCallback([controllerApp](Mac48Address mac, Ipv4Address ip) {
-            controllerApp->AddArpEntry(ip, mac);
-        });
-        switchNode->AddApplication(app);
-        app->SetStartTime(Seconds(1.0));
-        app->SetStopTime(Seconds(simTime));
-        return app;
-    };
-
     // --- 安装到 sw1 (域 A): ROLE_AP_SERVER ---
     installApServerApp(sw1,
         DynamicCast<WifiNetDevice>(apWifiDevsA.Get(0)),
@@ -972,12 +916,11 @@ int main(int argc, char *argv[])
         Ipv4Address("10.2.1.0"), Ipv4Address("10.2.1.100"),
         Ipv4Address("10.2.1.200"), Ipv4Mask("255.255.255.0"));
 
-    // --- 安装到 sw3 (域 C): ROLE_GATEWAY ---
-    installGatewayApp(sw3,
+    // --- 安装到 sw3 (域 C): ROLE_AP_SERVER (C域改为AP模式，关闭伪信标) ---
+    installApServerApp(sw3,
         DynamicCast<WifiNetDevice>(apWifiDevsC.Get(0)),
-        DynamicCast<WifiNetDevice>(sw3EmDev.Get(0)), sw3Vnds.emVnd,
-        Ipv4Address("10.100.3.0"), Ipv4Address("10.100.3.10"),
-        Ipv4Address("10.100.3.50"), Ipv4Mask("255.255.255.0"));
+        Ipv4Address("10.3.1.0"), Ipv4Address("10.3.1.100"),
+        Ipv4Address("10.3.1.200"), Ipv4Mask("255.255.255.0"));
 
     // --- 安装到移动节点: ROLE_TERMINAL ---
     Ptr<BlindConnectApp> mobileApp = CreateObject<BlindConnectApp>();

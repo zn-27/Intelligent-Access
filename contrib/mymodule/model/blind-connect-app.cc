@@ -853,9 +853,8 @@ void BlindConnectApp::ReceiveStaBeacon(Ptr<const Packet> packet, uint16_t channe
     MgtBeaconHeader beacon;
     if (!p->RemoveHeader(beacon)) return;
 
-    // SSID=C 的 AP Beacon 是 SDN 内部用,域 C 对终端是自组织域,过滤掉避免误入 AP 模式
+    // C域已切换为AP模式：终端通过STA网卡加入C域，不再过滤C域AP Beacon
     Ssid beaconSsid = beacon.GetSsid();
-    if (std::string(beaconSsid.PeekString()) == "C") return;
 
     ScannedNodeInfo info;
     info.type = ScannedNodeInfo::TYPE_AP;
