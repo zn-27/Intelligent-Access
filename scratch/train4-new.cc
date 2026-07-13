@@ -1102,7 +1102,7 @@ int main(int argc, char *argv[])
     // =========================================================
     // 18. pcap 追踪
     // =========================================================
-    if (true)
+    if (trace)
     {
         phyAp.EnablePcap("A_sta", staWifiDevsA);
         phyAp.EnablePcap("A_ap", apWifiDevsA);
@@ -1119,8 +1119,8 @@ int main(int argc, char *argv[])
         domainPhyC.EnablePcap("domainC-adhoc-sta", StaC);
         phyAp.EnablePcap("mobile-sta", mobileStaDev);
         phyAp.EnablePcap("mobile-em", mobileEmDev);
-        of13Helper->EnableOpenFlowPcap("openflow");
-        of13Helper->EnableDatapathStats("switch-stats");
+        // of13Helper->EnableOpenFlowPcap("openflow");
+        // of13Helper->EnableDatapathStats("switch-stats");
     }
 
     // =========================================================
@@ -1151,11 +1151,11 @@ int main(int argc, char *argv[])
     //onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(ifStaC.GetAddress(2), basePort)));
     //onoff.Install(StaA.Get(0));
 
-    // Flow 2: A→C  StaA[0] (10.1.1.1) → StaC[2] adhoc (10.100.3.4)  port 13
+    // Flow 2 (disabled): A→C  StaA[0] (10.1.1.1) → StaC[2] adhoc (10.100.3.4)  port 13
     // 域 C 初始即为 Ad-Hoc 模式，无需等待模式切换，提前启动
-    onoff.SetAttribute("StartTime", TimeValue(Seconds(10.0)));
-    onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(emIfacesC.GetAddress(3), basePort + 4)));
-    onoff.Install(StaA.Get(0));
+    //onoff.SetAttribute("StartTime", TimeValue(Seconds(10.0)));
+    //onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(emIfacesC.GetAddress(3), basePort + 4)));
+    //onoff.Install(StaA.Get(0));
 
     // Flow 3: A→B  StaA[0] (10.1.1.1) → StaB[0] (10.2.1.1)  port 10
     //onoff.SetAttribute("Remote", AddressValue(InetSocketAddress(ifStaB.GetAddress(0), basePort + 1)));
@@ -1171,21 +1171,21 @@ int main(int argc, char *argv[])
     
 
     // =========================================================
-    // 20. FlowMonitor
+    // 20. FlowMonitor (disabled)
     // =========================================================
-    FlowMonitorHelper flowmonHelper;
-    NodeContainer monitorNodes;
-    monitorNodes.Add(StaA);
-    monitorNodes.Add(StaB);
-    monitorNodes.Add(StaC);
-    Ptr<FlowMonitor> monitor = flowmonHelper.Install(monitorNodes);
+    // FlowMonitorHelper flowmonHelper;
+    // NodeContainer monitorNodes;
+    // monitorNodes.Add(StaA);
+    // monitorNodes.Add(StaB);
+    // monitorNodes.Add(StaC);
+    // Ptr<FlowMonitor> monitor = flowmonHelper.Install(monitorNodes);
 
-    std::ofstream fout("flow_stats.csv");
-    fout << "Time";
-    for (int i = 1; i <= 7; ++i)
-        fout << ",Throughput_" << i << "(Kbps),LossRate_" << i << "(%),AvgDelay_" << i << "(ms),Jitter_" << i << "(ms),TxPackets_" << i << ",RxPackets_" << i << ",RxBytes_" << i << ",LostPackets_" << i;
-    fout << std::endl;
-    Simulator::Schedule(Seconds(0.1), &MonitorFlow, monitor, &flowmonHelper, 1, &fout);
+    // std::ofstream fout("flow_stats.csv");
+    // fout << "Time";
+    // for (int i = 1; i <= 7; ++i)
+    //     fout << ",Throughput_" << i << "(Kbps),LossRate_" << i << "(%),AvgDelay_" << i << "(ms),Jitter_" << i << "(ms),TxPackets_" << i << ",RxPackets_" << i << ",RxBytes_" << i << ",LostPackets_" << i;
+    // fout << std::endl;
+    // Simulator::Schedule(Seconds(0.1), &MonitorFlow, monitor, &flowmonHelper, 1, &fout);
 
     // =========================================================
     // 21. 运行仿真
@@ -1193,25 +1193,26 @@ int main(int argc, char *argv[])
     Simulator::Stop(Seconds(simTime));
     Simulator::Run();
 
-    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmonHelper.GetClassifier());
-    std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
-
-    std::cout << "\n========== 流量统计结果 ==========" << std::endl;
-    for (auto const &i : stats)
-    {
-        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i.first);
-        std::cout << "Flow (" << t.sourceAddress << " -> " << t.destinationAddress << ")" << std::endl;
-        std::cout << "  Tx Bytes: " << i.second.txBytes << "  Rx Bytes: " << i.second.rxBytes << std::endl;
-        std::cout << "  Tx Packets: " << i.second.txPackets << "  Rx Packets: " << i.second.rxPackets << std::endl;
-        if (i.second.rxPackets > 0)
-            std::cout << "  平均延迟: " << i.second.delaySum.GetSeconds() / i.second.rxPackets * 1000 << " ms" << std::endl;
-        if (i.second.txPackets > 0)
-            std::cout << "  丢包率: " << (double)(i.second.txPackets - i.second.rxPackets) / i.second.txPackets * 100 << " %" << std::endl;
-        std::cout << std::endl;
-    }
-
-    monitor->SerializeToXmlFile("flowmon-results.xml", true, true);
-    fout.close();
+    // (FlowMonitor disabled)
+    // Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmonHelper.GetClassifier());
+    // std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
+    //
+    // std::cout << "\n========== 流量统计结果 ==========" << std::endl;
+    // for (auto const &i : stats)
+    // {
+    //     Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i.first);
+    //     std::cout << "Flow (" << t.sourceAddress << " -> " << t.destinationAddress << ")" << std::endl;
+    //     std::cout << "  Tx Bytes: " << i.second.txBytes << "  Rx Bytes: " << i.second.rxBytes << std::endl;
+    //     std::cout << "  Tx Packets: " << i.second.txPackets << "  Rx Packets: " << i.second.rxPackets << std::endl;
+    //     if (i.second.rxPackets > 0)
+    //         std::cout << "  平均延迟: " << i.second.delaySum.GetSeconds() / i.second.rxPackets * 1000 << " ms" << std::endl;
+    //     if (i.second.txPackets > 0)
+    //         std::cout << "  丢包率: " << (double)(i.second.txPackets - i.second.rxPackets) / i.second.txPackets * 100 << " %" << std::endl;
+    //     std::cout << std::endl;
+    // }
+    //
+    // monitor->SerializeToXmlFile("flowmon-results.xml", true, true);
+    // fout.close();
 
     BlindConnectApp::PrintMessageLog();
     BlindConnectApp::ExportExperimentEvents("join_events.csv");
