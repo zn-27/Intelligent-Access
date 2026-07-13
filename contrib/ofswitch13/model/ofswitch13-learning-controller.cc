@@ -425,7 +425,11 @@ namespace ns3
                     }
                     else if (itSrcL3->second.second != inPort)
                     {
-                        NS_ASSERT_MSG(false, "L3转发表不一致");
+                        // 移动节点切换域时端口变化属正常行为，更新L3表项
+                        std::cout << "L3更新: IP " << srcIp << " 端口从 " << itSrcL3->second.second
+                                  << " 迁移到 " << inPort << " (MAC " << src48 << ")" << std::endl;
+                        itSrcL3->second.first = src48;
+                        itSrcL3->second.second = inPort;
                     }
                 }
             }
