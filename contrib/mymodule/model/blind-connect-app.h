@@ -14,6 +14,7 @@
 #include "ns3/random-variable-stream.h"
 #include "ns3/ssid.h"
 #include "crypto-utils.h"
+#include "intelligent-access-algorithm.h"
 #include "ns3/yans-wifi-channel.h"
 #include <map>
 #include <list>
@@ -48,13 +49,40 @@ public:
     NodeType type;
     Ssid ssid;
     double snr;            // dBm
+    double noise;          // dBm
     uint32_t hopsToGw;
     double load;           // 0..1
     double minEnergy;      // 0..1
     uint32_t nodes;        // 域内节点数
     bool secure;
+    uint32_t securityCapabilities;
     Ipv4Address gateway;
     uint16_t channelFreqMhz;
+    Time observedAt{Seconds(0)};
+  };
+
+  /**
+   * A domain describes capabilities, not a permanently selected operating
+   * mode.  The SDN control plane may enable infrastructure, Ad-Hoc, or both
+   * without changing the physical topology.
+   */
+  struct DomainProfile {
+    uint32_t domainId;
+    Ssid infrastructureSsid;
+    Ssid adhocSsid;
+    Ipv4Address infrastructureGateway;
+    Ipv4Address adhocGateway;
+    uint16_t infrastructureChannelFreqMhz;
+    uint16_t adhocChannelFreqMhz;
+    bool infrastructureAccessEnabled;
+
+    DomainProfile()
+      : domainId(0),
+        infrastructureGateway("0.0.0.0"),
+        adhocGateway("0.0.0.0"),
+        infrastructureChannelFreqMhz(0),
+        adhocChannelFreqMhz(0),
+        infrastructureAccessEnabled(true) {}
   };
 
   static TypeId GetTypeId();
@@ -90,6 +118,10 @@ public:
 
   // 注册 Adhoc 域信道映射（SSID → YansWifiChannel），供 ExecuteSwitch 切换信道对象
   void RegisterAdhocChannel(const std::string& ssid, Ptr<YansWifiChannel> channel);
+  void SetAdhocDiscoverySsid(Ssid ssid);
+  void RegisterAdhocBeaconSource(Ptr<WifiNetDevice> source, uint16_t frequencyMhz);
+  void RegisterDomainProfile(const DomainProfile& profile);
+  void SetAccessAlgorithm(Ptr<IntelligentAccessAlgorithm> algorithm);
 
   // 状态查询（供外部日志回调使用）
   Ipv4Address GetAssignedIp() const { return m_assignedIp; }
@@ -116,10 +148,18 @@ private:
   void EvaluateAndSwitch();
   void ScheduleEvaluate();
   void ExecuteSwitch(const ScannedNodeInfo& bestNode);
+  bool ConfigureStaRadio(Ssid ssid, uint16_t frequencyMhz);
+  bool ConfigureAdhocRadio(Ssid ssid, uint16_t frequencyMhz);
+  bool ConfigureRadiosForDomain(uint32_t domainId);
+  void ScheduleAdhocDiscoveryScan();
+  void DoAdhocDiscoveryScan();
+  void RestoreAdhocDomainChannel();
   void ScheduleApRescan();           // AP域驻留时周期性重扫其他信道
   void DoApRescanChannel();          // 执行一次重扫信道切换
   void DoApRescanRestore();          // 重扫完成后恢复AP信道
   double CalculateScore(const ScannedNodeInfo& node);
+  IntelligentAccessAlgorithm::NetworkKey MakeNetworkKey(const ScannedNodeInfo& node) const;
+  ScannedNodeInfo FromAccessCandidate(const IntelligentAccessAlgorithm::Candidate& candidate) const;
 
   void SendPseudoBeacon();
   void PurgeNeighborTable();
@@ -147,6 +187,10 @@ private:
   void EnsureBothInterfacesUp();                    // 确保两张接口都UP
   void SetDefaultRoute(Ptr<NetDevice> dev, Ipv4Address gw);
   void BindDataSocketsToActiveDevice(Ptr<NetDevice> dev);
+  void BeginHandover();
+  void CommitHandover(DataPlaneMode mode);
+  void AbortHandover(const std::string& reason);
+  void FinishOldPathGrace();
   uint32_t GetDomainIdFromBestNode(const ScannedNodeInfo& node) const;
 
   // 延迟发送辅助（确保时间戳顺序：REQUEST < OFFER < CONFIRM）
@@ -171,9 +215,14 @@ private:
   ScannedNodeInfo::NodeType m_currentNetType;
   Ssid m_currentSsid;              // 当前AP的SSID (用于评估时精确匹配)
   Ssid m_adhocSsid;                // GATEWAY伪信标携带的Adhoc域SSID
+  Ssid m_adhocDiscoverySsid;       // AP驻留期间由Ad-Hoc网卡周期扫描的网络
   std::map<std::string, Ptr<YansWifiChannel>> m_adhocChannels;  // SSID → Adhoc域信道对象
+  std::map<Mac48Address, std::pair<Ptr<WifiNetDevice>, uint16_t>> m_adhocBeaconSources;
+  std::map<uint32_t, DomainProfile> m_domainProfiles;
+  Ptr<IntelligentAccessAlgorithm> m_accessAlgorithm;
   double m_currentSnr;
   int m_currentHops;
+  bool m_useLegacyUdpBeacon;
 
   Ptr<WifiNetDevice> m_staDevice;
   Ptr<WifiNetDevice> m_adhocDevice;
@@ -185,6 +234,8 @@ private:
   EventId m_hopEvent;
   EventId m_evalEvent;
   EventId m_rescanEvent;          // AP域周期性信道重扫
+  EventId m_adhocScanEvent;       // Ad-Hoc网卡发现扫描
+  EventId m_adhocRestoreEvent;    // 扫描后恢复当前域
   EventId m_ipRetryEvent;         // STA IP请求重试定时器
   EventId m_ipReqEvent;           // STA首次IP请求的延迟定时器
   EventId m_adhocIpRetryEvent;    // Adhoc IP请求重试定时器
@@ -202,6 +253,7 @@ private:
   std::vector<uint8_t> m_channels;
   uint32_t m_currentChIdx;
   bool m_inApRescan;               // 是否正在进行AP域信道重扫
+  bool m_inAdhocDiscoveryScan;     // Ad-Hoc网卡是否处于发现驻留
   uint32_t m_rescanChCount;        // 重扫已切换的信道计数
   uint16_t m_apChannelFreqMhz;     // 重扫前AP信道频率（用于恢复）
   uint8_t m_apChannelNum;          // 重扫前AP信道号
@@ -240,6 +292,22 @@ private:
   InterfaceSoftState m_staState;      // STA网卡状态
   InterfaceSoftState m_adhocState;    // Ad-Hoc网卡状态
   uint32_t m_currentDomainId;         // 当前所在域 (1=A, 2=B, 3=C)
+
+  struct ActiveContextSnapshot {
+    uint32_t domainId{0};
+    ScannedNodeInfo::NodeType networkType{ScannedNodeInfo::TYPE_AP};
+    Ssid ssid;
+    int hops{99};
+    double signalDbm{-100.0};
+    Ipv4Address ip{"0.0.0.0"};
+    Ipv4Mask mask{"255.255.255.0"};
+    Ipv4Address gateway{"0.0.0.0"};
+    DataPlaneMode dataPlane{DATA_PLANE_ADHOC};
+  };
+  bool m_handoverInProgress;
+  ActiveContextSnapshot m_previousContext;
+  EventId m_oldPathGraceEvent;
+  Time m_oldPathGracePeriod;
 
   // --- AP Server ---
   Ptr<Socket> m_apServerSocket;

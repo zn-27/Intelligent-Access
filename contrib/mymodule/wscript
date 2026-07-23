@@ -25,6 +25,7 @@ def build(bld):
     module.source = [
         'model/mymodule.cc',
         'model/simple-adhoc-ip.cc',
+        'model/intelligent-access-algorithm.cc',
         'model/blind-connect-app.cc',
         'model/crypto-utils.cc',
         'helper/mymodule-helper.cc',
@@ -52,6 +53,7 @@ def build(bld):
     headers.source = [
         'model/mymodule.h',
         'model/simple-adhoc-ip.h',
+        'model/intelligent-access-algorithm.h',
         'model/blind-connect-app.h',
         'model/crypto-utils.h',
         'helper/mymodule-helper.h',

@@ -142,6 +142,7 @@ public:
    * \return true if we are associated with an AP, false otherwise
    */
   bool IsAssociated (void) const;
+  void ForceDisassociate (void);
 
   /**
    * Return the association ID.

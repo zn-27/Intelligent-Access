@@ -24,6 +24,7 @@
 #define ADHOC_WIFI_MAC_H
 
 #include "regular-wifi-mac.h"
+#include "supported-rates.h"
 
 namespace ns3
 {
@@ -46,14 +47,53 @@ namespace ns3
     virtual ~AdhocWifiMac();
 
     void SetAddress(Mac48Address address) override;
+    void SetWifiRemoteStationManager(
+        const Ptr<WifiRemoteStationManager> stationManager) override;
     void SetLinkUpCallback(Callback<void> linkUp) override;
     void Enqueue(Ptr<Packet> packet, Mac48Address to) override;
     // gai dong: Add Enqueue with from address for OpenFlow switch support
     void Enqueue(Ptr<Packet> packet, Mac48Address to, Mac48Address from) override;
     bool SupportsSendFrom(void) const override;
+    void SetCollaborativeBeaconGeneration(bool enable);
+    bool GetCollaborativeBeaconGeneration() const;
+    void SetCollaborativeBeaconInterval(Time interval);
+    Time GetCollaborativeBeaconInterval() const;
+    void SetCollaborativeDomainId(uint32_t domainId);
+    void SetCollaborativeRole(uint8_t role);
+    void SetCollaborativeGateway(uint32_t gateway);
+    void SetCollaborativeHops(uint8_t hops);
+    void SetCollaborativeLoadPercent(uint8_t load);
+    void SetCollaborativeEnergyPercent(uint8_t energy);
+    void SetCollaborativeSecurityCapabilities(uint8_t capabilities);
+    void EnqueueCollaborativeControl(Ptr<Packet> packet, Mac48Address to);
+    uint8_t GetCollaborativeRole() const;
+    uint8_t GetCollaborativeHops() const;
+    uint32_t GetCollaborativeGateway() const;
     // gai dong
   private:
+    void DoInitialize() override;
+    void DoDispose() override;
+    void SendCollaborativeBeacon();
+    void ScheduleNextCollaborativeBeacon();
+    SupportedRates GetCollaborativeSupportedRates() const;
     void Receive(Ptr<WifiMacQueueItem> mpdu) override;
+
+    bool m_collaborativeBeaconGeneration;
+    Time m_collaborativeBeaconInterval;
+    bool m_enableCollaborativeBeaconJitter;
+    uint16_t m_collaborativeBeaconMaxBackoffSlots;
+    Time m_collaborativeBeaconSlotTime;
+    EventId m_collaborativeBeaconEvent;
+    Ptr<Txop> m_collaborativeBeaconTxop;
+    Ptr<Txop> m_collaborativeControlTxop;
+    Ptr<UniformRandomVariable> m_collaborativeBeaconJitter;
+    uint32_t m_collaborativeDomainId;
+    uint8_t m_collaborativeRole;
+    uint32_t m_collaborativeGateway;
+    uint8_t m_collaborativeHops;
+    uint8_t m_collaborativeLoadPercent;
+    uint8_t m_collaborativeEnergyPercent;
+    uint8_t m_collaborativeSecurityCapabilities;
   };
 
 } // namespace ns3

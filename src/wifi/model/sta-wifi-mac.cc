@@ -416,6 +416,13 @@ StaWifiMac::IsAssociated (void) const
   return m_state == ASSOCIATED;
 }
 
+void
+StaWifiMac::ForceDisassociate (void)
+{
+  NS_LOG_FUNCTION (this);
+  SetState (UNASSOCIATED);
+}
+
 bool
 StaWifiMac::IsWaitAssocResp (void) const
 {
