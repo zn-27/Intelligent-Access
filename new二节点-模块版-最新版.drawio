@@ -1,0 +1,528 @@
+<mxfile host="Electron" agent="module-redraw" pages="6">
+  <diagram name="01-系统架构" id="01-系统架构">
+    <mxGraphModel dx="1712" dy="1002" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="780" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p1t" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" value="系统总体架构" vertex="1">
+          <mxGeometry height="30" width="240" x="300" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="p1c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=16;" value="控制器" vertex="1">
+          <mxGeometry height="50" width="160" x="340" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;" value="中心节点" vertex="1">
+          <mxGeometry height="280" width="480" x="180" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn1" parent="p1cn" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;" value="可编程转发" vertex="1">
+          <mxGeometry height="44" width="400" x="40" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn2" parent="p1cn" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="AP 硬件" vertex="1">
+          <mxGeometry height="50" width="170" x="40" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn3" parent="p1cn" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Ad-Hoc 硬件" vertex="1">
+          <mxGeometry height="50" width="170" x="270" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn4" parent="p1cn" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffffff;strokeColor=#666666;startSize=28;fontSize=13;" value="接入服务" vertex="1">
+          <mxGeometry height="70" width="400" x="40" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn4a" parent="p1cn4" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="AP 服务" vertex="1">
+          <mxGeometry height="28" width="160" x="20" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p1cn4b" parent="p1cn4" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="网关服务" vertex="1">
+          <mxGeometry height="28" width="160" x="220" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p1tm" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="终端" vertex="1">
+          <mxGeometry height="200" width="480" x="180" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="p1tm1" parent="p1tm" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#d5e8d4;strokeColor=#82b366;" value="STA 接口" vertex="1">
+          <mxGeometry height="50" width="170" x="40" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p1tm2" parent="p1tm" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Ad-Hoc 接口" vertex="1">
+          <mxGeometry height="50" width="170" x="270" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p1tm3" parent="p1tm" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;" value="接入模块" vertex="1">
+          <mxGeometry height="50" width="400" x="40" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e1" edge="1" parent="1" source="p1c" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="p1cn" value="控制">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e2" edge="1" parent="1" source="p1cn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;startArrow=block;startFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="p1tm" value="有中心域 / 自组织域">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=12;fillColor=none;strokeColor=#666666;" value="图例" vertex="1">
+          <mxGeometry height="150" width="160" x="700" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg0" parent="p1lg" style="rounded=0;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="" vertex="1">
+          <mxGeometry height="16" width="28" x="10" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg0t" parent="p1lg" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" value="控制器" vertex="1">
+          <mxGeometry height="20" width="100" x="48" y="28" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg1" parent="p1lg" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="" vertex="1">
+          <mxGeometry height="16" width="28" x="10" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg1t" parent="p1lg" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" value="中心节点" vertex="1">
+          <mxGeometry height="20" width="100" x="48" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg2" parent="p1lg" style="rounded=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="" vertex="1">
+          <mxGeometry height="16" width="28" x="10" y="86" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg2t" parent="p1lg" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" value="终端 / STA" vertex="1">
+          <mxGeometry height="20" width="100" x="48" y="84" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg3" parent="p1lg" style="rounded=0;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="" vertex="1">
+          <mxGeometry height="16" width="28" x="10" y="114" as="geometry" />
+        </mxCell>
+        <mxCell id="p1lg3t" parent="p1lg" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" value="Ad-Hoc" vertex="1">
+          <mxGeometry height="20" width="100" x="48" y="112" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="02-入网时序" id="02-入网时序">
+    <mxGraphModel dx="3556" dy="1954" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1140" pageHeight="540" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="HoGmLunZ4rZKtijbdty9-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;labelBackgroundColor=none;textShadow=0;" value="" vertex="1">
+          <mxGeometry height="900" width="1110" x="-1130" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;labelBackgroundColor=none;textShadow=0;" value="" vertex="1">
+          <mxGeometry height="960" width="1110" x="-1130" y="-320" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-3" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=18;textShadow=0;strokeWidth=2;labelBackgroundColor=none;" value="终端" vertex="1">
+          <mxGeometry height="862" width="150" x="-935" y="-270" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-4" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=18;textShadow=0;strokeWidth=2;labelBackgroundColor=none;" value="AP / 中心节点" vertex="1">
+          <mxGeometry height="862" width="170" x="-445" y="-270" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-5" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=18;textShadow=0;strokeWidth=2;labelBackgroundColor=none;" value="控制器" vertex="1">
+          <mxGeometry height="862" width="150" x="-225" y="-270" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-6" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-4" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-3" value="AP 信标 + AP 密钥材料（MODULUS + PUBKEY）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-597" y="-118" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-7" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-3" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-4" value="域选择完成 · 关联 AP">
+          <mxGeometry relative="1" x="0.0004" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-600" y="8" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-8" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-3" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-4" value="IP_REQUEST（MAC + TXID + 终端 PUBKEY + HMAC）">
+          <mxGeometry relative="1" x="0.0022" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-600" y="66" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-9" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-4" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-3" value="IP_OFFER（IP / 掩码 / 网关 / TXID + HMAC）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-597" y="192" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-10" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-4" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-5" value="分配地址并登记 ARP">
+          <mxGeometry relative="1" x="0.0009" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-252" y="318" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-11" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-3" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;dashed=1;dashPattern=2 3;endArrow=block;shadow=0;fillColor=#f8cecc;strokeColor=#b85450;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-5" value="配置 STA 并同步 ARP">
+          <mxGeometry relative="1" x="0.0009" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-484" y="376" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-12" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-3" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" target="HoGmLunZ4rZKtijbdty9-4" value="业务数据经 AP 路径">
+          <mxGeometry relative="1" x="0.0022" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-600" y="428" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-14" parent="1" style="fillColor=#ffff88;strokeColor=#9E916F;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" value="解析 AP 公钥&#xa;派生 Chebyshev 共享密钥" vertex="1">
+          <mxGeometry height="68" width="249" x="-1115" y="-98" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-15" parent="1" style="fillColor=#f8cecc;strokeColor=#b85450;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;labelBorderColor=none;" value="派生共享密钥 · 验证请求 HMAC" vertex="1">
+          <mxGeometry height="68" width="179" x="-351" y="86" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-16" parent="1" style="fillColor=#ffff88;strokeColor=#9E916F;fontSize=18;fontStyle=1;labelBackgroundColor=none;textShadow=0;" value="校验 TXID + IP_OFFER HMAC&#xa;配置 STA / 默认路由" vertex="1">
+          <mxGeometry height="68" width="236" x="-1102" y="212" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-18" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fontSize=18;fontStyle=1;textShadow=0;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;labelBackgroundColor=none;" value="终端" vertex="1">
+          <mxGeometry height="780" width="150" x="-875" y="820" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-19" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fontSize=18;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;textShadow=0;strokeWidth=2;labelBackgroundColor=none;" value="Ad-Hoc 网关" vertex="1">
+          <mxGeometry height="780" width="150" x="-454" y="820" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-20" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fontSize=18;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;textShadow=0;strokeWidth=2;labelBackgroundColor=none;" value="控制器" vertex="1">
+          <mxGeometry height="780" width="150" x="-211" y="820" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-21" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-19" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-18" value="协同信标 / 网关密钥材料（MODULUS + PUBKEY）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-582" y="982" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-22" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-18" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=17;textShadow=0;fontStyle=1;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-19" value="IP_REQUEST（MAC + TXID + 终端 PUBKEY + HMAC）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-585" y="1127" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-23" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-19" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-18" value="IP_OFFER（IP / 掩码 / 网关 / TXID + HMAC）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-582" y="1253" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-24" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-18" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-19" value="IP_CONFIRM">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-585" y="1379" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-25" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-19" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;fillColor=#dae8fc;strokeColor=#6c8ebf;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-20" value="登记 ARP / 主机位置">
+          <mxGeometry relative="1" x="-0.0045" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-252" y="1437" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-26" edge="1" parent="1" source="HoGmLunZ4rZKtijbdty9-18" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;dashed=1;dashPattern=2 3;endArrow=block;fontSize=18;fontStyle=1;textShadow=0;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;labelBackgroundColor=none;" target="HoGmLunZ4rZKtijbdty9-20" value="激活 Ad-Hoc 数据面并同步 ARP">
+          <mxGeometry relative="1" x="-0.1334" y="5" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="-462" y="1495" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-28" parent="1" style="fillColor=#ffff88;strokeColor=#9E916F;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" value="解析网关公钥&#xa;派生 Chebyshev 共享密钥" vertex="1">
+          <mxGeometry height="99" width="290" x="-1105" y="990" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-29" parent="1" style="fillColor=#f8cecc;strokeColor=#b85450;fontSize=18;textShadow=0;fontStyle=1;labelBackgroundColor=none;" value="派生共享密钥 · 验证请求 HMAC" vertex="1">
+          <mxGeometry height="68" width="177" x="-359" y="1147" as="geometry" />
+        </mxCell>
+        <mxCell id="HoGmLunZ4rZKtijbdty9-30" parent="1" style="fillColor=#ffff88;strokeColor=#9E916F;fontSize=18;fontStyle=1;textShadow=0;labelBackgroundColor=none;" value="校验 TXID + IP_OFFER HMAC&#xa;配置 Ad-Hoc 接口" vertex="1">
+          <mxGeometry height="68" width="263" x="-1092" y="1273" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="03-域选择流程" id="03-域选择流程">
+    <mxGraphModel dx="1712" dy="1002" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="980" pageHeight="520" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p3t" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" value="智能域选择与切换流程" vertex="1">
+          <mxGeometry height="28" width="240" x="340" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="p3cand" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#e1d5e7;strokeColor=#9673a6;startSize=30;fontSize=13;" value="候选感知与汇聚" vertex="1">
+          <mxGeometry height="160" width="280" x="40" y="345" as="geometry" />
+        </mxCell>
+        <mxCell id="p3c1" parent="p3cand" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="AP 信标 / 认证材料" vertex="1">
+          <mxGeometry height="40" width="110" x="15" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="p3c2" parent="p3cand" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="Ad-Hoc 信标 / 认证材料" vertex="1">
+          <mxGeometry height="40" width="120" x="145" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="p3c3" parent="p3cand" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="按域去重 · EWMA / 趋势更新" vertex="1">
+          <mxGeometry height="40" width="200" x="40" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p3score" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#fff2cc;strokeColor=#d6b656;" value="资格过滤 + 预测 MADM 评分" vertex="1">
+          <mxGeometry height="48" width="120" x="360" y="401" as="geometry" />
+        </mxCell>
+        <mxCell id="p3sw" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;startSize=28;fontSize=13;" value="安全接入与切换执行" vertex="1">
+          <mxGeometry height="90" width="280" x="520" y="379" as="geometry" />
+        </mxCell>
+        <mxCell id="p3sw1" parent="p3sw" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="密钥派生 / HMAC 验证" vertex="1">
+          <mxGeometry height="36" width="100" x="20" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p3sw2" parent="p3sw" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="无线同步 / 软切换" vertex="1">
+          <mxGeometry height="36" width="100" x="150" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p3e7" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="p3sw" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="480" y="424" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="36WcbEwobHVhdu1CI1O8-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="" vertex="1">
+          <mxGeometry height="60" width="165" x="840" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="36WcbEwobHVhdu1CI1O8-2" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" value="更新 ARP / 主机位置" vertex="1">
+          <mxGeometry height="30" width="155" x="845" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="36WcbEwobHVhdu1CI1O8-3" edge="1" parent="1" source="p3sw" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="36WcbEwobHVhdu1CI1O8-1" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="820" y="430.25" as="sourcePoint" />
+            <mxPoint x="1004" y="430.25" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="36WcbEwobHVhdu1CI1O8-5" edge="1" parent="1" source="p3cand" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.019;entryY=0.512;entryDx=0;entryDy=0;entryPerimeter=0;" target="p3score">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="双接口常驻与扫描初始化" vertex="1">
+          <mxGeometry height="56" width="130" x="260" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="信标发现与 AP / 网关密钥材料获取" vertex="1">
+          <mxGeometry height="56" width="130" x="410" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-12" edge="1" parent="1" source="hUsqFW6CuubCWx35AiU4-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="hUsqFW6CuubCWx35AiU4-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="EWMA · 趋势预测 · 多属性评分" vertex="1">
+          <mxGeometry height="56" width="130" x="560" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-13" edge="1" parent="1" source="hUsqFW6CuubCWx35AiU4-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="hUsqFW6CuubCWx35AiU4-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="自适应滞回 / TTT / 驻留判决" vertex="1">
+          <mxGeometry height="56" width="130" x="560" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-14" edge="1" parent="1" source="hUsqFW6CuubCWx35AiU4-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="hUsqFW6CuubCWx35AiU4-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="共享密钥派生 / HMAC 验证 / IP 分配" vertex="1">
+          <mxGeometry height="56" width="130" x="410" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="提交切换并同步控制器" vertex="1">
+          <mxGeometry height="56" width="130" x="260" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-7" edge="1" parent="1" source="hUsqFW6CuubCWx35AiU4-1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="hUsqFW6CuubCWx35AiU4-2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hUsqFW6CuubCWx35AiU4-8" edge="1" parent="1" source="hUsqFW6CuubCWx35AiU4-2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="hUsqFW6CuubCWx35AiU4-3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="04-业务模式" id="04-业务模式">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="960" pageHeight="540" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p4t" value="双接口业务模式" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="15" width="200" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap" value="AP 业务模式" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;startSize=34;fontSize=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="60" width="340" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_s" value="STA 接口" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffffff;strokeColor=#666666;startSize=26;fontSize=12;" vertex="1" parent="p4ap">
+          <mxGeometry x="20" y="45" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_sc" value="控制面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4ap_s">
+          <mxGeometry x="15" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_sd" value="数据面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p4ap_s">
+          <mxGeometry x="160" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_a" value="Ad-Hoc 接口" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffffff;strokeColor=#666666;startSize=26;fontSize=12;" vertex="1" parent="p4ap">
+          <mxGeometry x="20" y="130" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_ac" value="控制面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4ap_a">
+          <mxGeometry x="15" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ap_ad" value="数据面休眠" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#666666;fontSize=11;" vertex="1" parent="p4ap_a">
+          <mxGeometry x="160" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah" value="Ad-Hoc 业务模式" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffe6cc;strokeColor=#d79b00;startSize=34;fontSize=15;" vertex="1" parent="1">
+          <mxGeometry x="520" y="60" width="340" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_s" value="STA 接口" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffffff;strokeColor=#666666;startSize=26;fontSize=12;" vertex="1" parent="p4ah">
+          <mxGeometry x="20" y="45" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_sc" value="控制面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4ah_s">
+          <mxGeometry x="15" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_sd" value="数据面休眠" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#666666;fontSize=11;" vertex="1" parent="p4ah_s">
+          <mxGeometry x="160" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_a" value="Ad-Hoc 接口" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#ffffff;strokeColor=#666666;startSize=26;fontSize=12;" vertex="1" parent="p4ah">
+          <mxGeometry x="20" y="130" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_ac" value="控制面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4ah_a">
+          <mxGeometry x="15" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ah_ad" value="数据面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p4ah_a">
+          <mxGeometry x="160" y="32" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4e1" value="模式切换" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;startArrow=block;startFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p4ap" target="p4ah">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4pt" value="业务数据路径" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="310" width="160" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4p1" value="业务源" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="350" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4p2" value="业务出口" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="210" y="350" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4p3" value="中心节点数据面" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="380" y="350" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4p4" value="可编程转发" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="350" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4p5" value="目的节点" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="350" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4pe0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p4p1" target="p4p2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4pe1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p4p2" target="p4p3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4pe2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p4p3" target="p4p4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4pe3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p4p4" target="p4p5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg" value="图例" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=12;fillColor=none;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="430" width="420" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg0" value="" style="rounded=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p4lg">
+          <mxGeometry x="10" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg0t" value="控制面常开" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" vertex="1" parent="p4lg">
+          <mxGeometry x="45" y="30" width="90" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg1" value="" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p4lg">
+          <mxGeometry x="145" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg1t" value="数据面激活" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" vertex="1" parent="p4lg">
+          <mxGeometry x="180" y="30" width="90" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg2" value="" style="rounded=0;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#666666;" vertex="1" parent="p4lg">
+          <mxGeometry x="280" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="p4lg2t" value="数据面休眠" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" vertex="1" parent="p4lg">
+          <mxGeometry x="315" y="30" width="90" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="05-地址登记" id="05-地址登记">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p5t" value="地址与主机登记" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="20" width="200" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="p5r1" value="终端地址获取" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p5r2" value="中心节点地址分配" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="120" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p5r3" value="登记通知" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="520" y="120" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p5r4" value="控制器主机表" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="120" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p5e0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p5r1" target="p5r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p5r2" target="p5r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p5r3" target="p5r4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="06-控制闭环" id="06-控制闭环">
+    <mxGraphModel dx="2054" dy="1202" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="540" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p6t" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" value="控制决策闭环" vertex="1">
+          <mxGeometry height="28" width="180" x="360" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" value="状态采集" vertex="1">
+          <mxGeometry height="60" width="140" x="100" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" value="全局视图" vertex="1">
+          <mxGeometry height="60" width="140" x="360" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p6c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="智能决策&#xa;（Q-Learning）" vertex="1">
+          <mxGeometry height="70" width="160" x="620" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="p6d" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;" value="策略下发" vertex="1">
+          <mxGeometry height="60" width="160" x="620" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" value="网元执行" vertex="1">
+          <mxGeometry height="60" width="140" x="100" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e1" edge="1" parent="1" source="p6a" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="p6b" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e2" edge="1" parent="1" source="p6b" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="p6c" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e3" edge="1" parent="1" source="p6c" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="p6d" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e4" edge="1" parent="1" source="p6d" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" target="p6e" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e5" edge="1" parent="1" source="p6e" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;fontSize=12;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" target="p6a" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6lt" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;" value="控制面分层" vertex="1">
+          <mxGeometry height="24" width="140" x="360" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l1" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#dae8fc;strokeColor=#6c8ebf;startSize=28;fontSize=13;" value="无线接口" vertex="1">
+          <mxGeometry height="100" width="280" x="80" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l1a" parent="p6l1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="AP" vertex="1">
+          <mxGeometry height="40" width="70" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l1b" parent="p6l1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="骨干" vertex="1">
+          <mxGeometry height="40" width="70" x="100" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l1c" parent="p6l1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="Ad-Hoc" vertex="1">
+          <mxGeometry height="40" width="80" x="185" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l2" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;startSize=28;fontSize=13;" value="转发控制" vertex="1">
+          <mxGeometry height="100" width="200" x="400" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l2a" parent="p6l2" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="流水线" vertex="1">
+          <mxGeometry height="40" width="75" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l2b" parent="p6l2" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="端口状态" vertex="1">
+          <mxGeometry height="40" width="80" x="105" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l3" parent="1" style="swimlane;startSize=32;html=1;fontSize=15;fontStyle=1;collapsible=0;pointerEvents=0;fillColor=#fff2cc;strokeColor=#d6b656;startSize=28;fontSize=13;" value="决策层" vertex="1">
+          <mxGeometry height="100" width="160" x="640" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="p6l3a" parent="p6l3" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;verticalAlign=middle;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" value="控制器" vertex="1">
+          <mxGeometry height="40" width="110" x="25" y="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

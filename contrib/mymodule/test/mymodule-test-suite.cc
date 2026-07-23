@@ -3,6 +3,7 @@
 // Include a header file from your module to test.
 #include "ns3/mymodule.h"
 #include "ns3/intelligent-access-algorithm.h"
+#include "ns3/crypto-utils.h"
 #include "ns3/double.h"
 #include "ns3/uinteger.h"
 #include "ns3/nstime.h"
@@ -150,6 +151,92 @@ private:
   }
 };
 
+class ChebyshevAuthenticatedExchangeTestCase : public TestCase
+{
+public:
+  ChebyshevAuthenticatedExchangeTestCase()
+    : TestCase("Chebyshev shared secret and HMAC tamper detection") {}
+
+private:
+  void DoRun() override
+  {
+    const mpz_class modulus = generate_128bit_prime();
+    ExtendedChebyshevKeyExchange terminal(modulus);
+    ExtendedChebyshevKeyExchange ap(modulus);
+
+    size_t terminalPrivateLength = 0;
+    size_t apPrivateLength = 0;
+    unsigned char* terminalPrivate =
+        terminal.generate_private_key_bytes(&terminalPrivateLength);
+    unsigned char* apPrivate =
+        ap.generate_private_key_bytes(&apPrivateLength);
+    const unsigned char basePoint[] = {2};
+
+    size_t terminalPublicLength = 0;
+    size_t apPublicLength = 0;
+    unsigned char* terminalPublic =
+        terminal.compute_public_key_bytes(
+            terminalPrivate, terminalPrivateLength,
+            basePoint, sizeof(basePoint), &terminalPublicLength);
+    unsigned char* apPublic =
+        ap.compute_public_key_bytes(
+            apPrivate, apPrivateLength,
+            basePoint, sizeof(basePoint), &apPublicLength);
+
+    size_t terminalSecretLength = 0;
+    size_t apSecretLength = 0;
+    unsigned char* terminalSecret =
+        terminal.compute_shared_secret_bytes(
+            terminalPrivate, terminalPrivateLength,
+            apPublic, apPublicLength, &terminalSecretLength);
+    unsigned char* apSecret =
+        ap.compute_shared_secret_bytes(
+            apPrivate, apPrivateLength,
+            terminalPublic, terminalPublicLength, &apSecretLength);
+
+    NS_TEST_ASSERT_MSG_EQ(
+        ExtendedChebyshevKeyExchange::bytes_to_hex(
+            terminalSecret, terminalSecretLength),
+        ExtendedChebyshevKeyExchange::bytes_to_hex(
+            apSecret, apSecretLength),
+        "terminal and AP derived different shared secrets");
+    NS_TEST_ASSERT_MSG_EQ((terminalSecretLength >= 16), true,
+                          "derived secret is too short for AP authentication");
+
+    const std::string request =
+        "TYPE:IP_REQUEST;MAC:00:00:00:00:00:01;TXID:7";
+    const std::string tampered =
+        "TYPE:IP_REQUEST;MAC:00:00:00:00:00:01;TXID:8";
+    unsigned char* requestHmac =
+        CryptoUtils::hmacSha256First64Bits(
+            request.data(), request.size(), terminalSecret, 16);
+    unsigned char* apHmac =
+        CryptoUtils::hmacSha256First64Bits(
+            request.data(), request.size(), apSecret, 16);
+    unsigned char* tamperedHmac =
+        CryptoUtils::hmacSha256First64Bits(
+            tampered.data(), tampered.size(), apSecret, 16);
+    NS_TEST_ASSERT_MSG_EQ(
+        CryptoUtils::bytesToHex(requestHmac, 8),
+        CryptoUtils::bytesToHex(apHmac, 8),
+        "AP could not verify the terminal request HMAC");
+    NS_TEST_ASSERT_MSG_NE(
+        CryptoUtils::bytesToHex(requestHmac, 8),
+        CryptoUtils::bytesToHex(tamperedHmac, 8),
+        "changing TXID did not invalidate the request HMAC");
+
+    CryptoUtils::freeBytes(requestHmac);
+    CryptoUtils::freeBytes(apHmac);
+    CryptoUtils::freeBytes(tamperedHmac);
+    ExtendedChebyshevKeyExchange::free_bytes(terminalPrivate);
+    ExtendedChebyshevKeyExchange::free_bytes(apPrivate);
+    ExtendedChebyshevKeyExchange::free_bytes(terminalPublic);
+    ExtendedChebyshevKeyExchange::free_bytes(apPublic);
+    ExtendedChebyshevKeyExchange::free_bytes(terminalSecret);
+    ExtendedChebyshevKeyExchange::free_bytes(apSecret);
+  }
+};
+
 MymoduleTestSuite::MymoduleTestSuite ()
   : TestSuite ("mymodule", UNIT)
 {
@@ -157,6 +244,7 @@ MymoduleTestSuite::MymoduleTestSuite ()
   AddTestCase (new MymoduleTestCase1, TestCase::QUICK);
   AddTestCase(new IntelligentAccessDecisionTestCase, TestCase::QUICK);
   AddTestCase(new IntelligentAccessSecurityFilterTestCase, TestCase::QUICK);
+  AddTestCase(new ChebyshevAuthenticatedExchangeTestCase, TestCase::QUICK);
 }
 
 // Do not forget to allocate an instance of this TestSuite

@@ -272,12 +272,18 @@ void BlindConnectApp::StartApplication() {
     if (m_role == ROLE_GATEWAY && m_poolStart != Ipv4Address("0.0.0.0")) {
         InitIpPool(m_poolBase, m_poolStart, m_poolEnd, m_poolMask);
     }
-    if (m_role == ROLE_GATEWAY || m_role == ROLE_BACKBONE) {
+    if (m_role == ROLE_GATEWAY || m_role == ROLE_BACKBONE ||
+        m_role == ROLE_AP_SERVER) {
         InitCrypto();
         GenerateChebyshevKeypair();
     }
     if (m_role == ROLE_TERMINAL) {
         InitCrypto();
+    }
+
+    if (m_role == ROLE_AP_SERVER && m_staDevice && m_cryptoEnabled) {
+        m_apKeyAdvEvent = Simulator::Schedule(
+            MilliSeconds(10), &BlindConnectApp::SendApKeyAdvertisement, this);
     }
 
     // --- ROLE_TERMINAL: STA 信标监听 + 跳频（STA 接口已在脚本中设为 0.0.0.0）---
@@ -331,6 +337,7 @@ void BlindConnectApp::StartApplication() {
 void BlindConnectApp::StopApplication() {
     Simulator::Cancel(m_hopEvent);
     Simulator::Cancel(m_beaconEvent);
+    Simulator::Cancel(m_apKeyAdvEvent);
     Simulator::Cancel(m_evalEvent);
     Simulator::Cancel(m_rescanEvent);
     Simulator::Cancel(m_adhocScanEvent);
@@ -358,6 +365,8 @@ void BlindConnectApp::StopApplication() {
     if (m_publicKeyBytes)  { delete[] m_publicKeyBytes;  m_publicKeyBytes = nullptr; }
     if (m_sharedSecret)    { delete[] m_sharedSecret;    m_sharedSecret = nullptr; }
     if (m_keyExchange)     { delete m_keyExchange;       m_keyExchange = nullptr; }
+    m_apPeerSecrets.clear();
+    m_staCryptoContexts.clear();
     m_cryptoEnabled = false;
 }
 
@@ -384,6 +393,13 @@ bool BlindConnectApp::IsExpectedAdhocOffer(const std::string& payload) const {
     if (tx.empty()) return true;
     return m_pendingAdhocTxId != 0 && std::stoul(tx) == m_pendingAdhocTxId &&
            m_pendingAdhocDomainId == m_currentDomainId;
+}
+
+bool BlindConnectApp::VerifyStaOfferSecurity(const std::string& payload) const {
+    const std::string ssid(m_currentSsid.PeekString());
+    auto context = m_staCryptoContexts.find(ssid);
+    return context != m_staCryptoContexts.end() &&
+           VerifyPayloadWithSecret(payload, context->second.sharedSecret);
 }
 
 // ---------- IP 池 ----------
@@ -529,6 +545,34 @@ void BlindConnectApp::SendPseudoBeacon() {
     m_beaconEvent = Simulator::Schedule(nextTime, &BlindConnectApp::SendPseudoBeacon, this);
 }
 
+void BlindConnectApp::SendApKeyAdvertisement() {
+    if (m_role != ROLE_AP_SERVER || !m_staDevice || !m_cryptoEnabled ||
+        !m_publicKeyBytes || GetModulusHex().empty()) {
+        return;
+    }
+
+    const std::string ssid(m_staDevice->GetMac()->GetSsid().PeekString());
+    std::ostringstream oss;
+    oss << "TYPE:AP_KEY_ADV;"
+        << "SSID:" << ssid << ";"
+        << "MAC:" << m_staDevice->GetAddress() << ";"
+        << "SEC:CHEBYSHEV;"
+        << "MODULUS:" << GetModulusHex() << ";"
+        << "PUBKEY:" << GetPublicKeyHex();
+    const std::string payload = oss.str();
+    Ptr<Packet> packet =
+        Create<Packet>(reinterpret_cast<const uint8_t*>(payload.data()),
+                       payload.size());
+    const bool sent =
+        m_staDevice->Send(packet, Mac48Address::GetBroadcast(), 0x0800);
+    std::cout << Simulator::Now().GetSeconds()
+              << "s: [AP-KeyAdv] ssid=" << ssid
+              << " sent=" << sent << std::endl;
+
+    m_apKeyAdvEvent = Simulator::Schedule(
+        Seconds(1.0), &BlindConnectApp::SendApKeyAdvertisement, this);
+}
+
 void BlindConnectApp::PurgeNeighborTable() {
     Time now = Simulator::Now();
     for (auto it = m_neighborTable.begin(); it != m_neighborTable.end(); ) {
@@ -558,26 +602,12 @@ void BlindConnectApp::ReceiveApSniffer(Ptr<const Packet> packet, uint16_t channe
     std::cout << Simulator::Now().GetSeconds()
               << "s: [ApServer-Sniffer] 收到 IP_REQUEST, payload=" << payload << std::endl;
 
-    size_t pos = payload.find("MAC:");
-    if (pos == std::string::npos) return;
-    size_t endPos = payload.find(";", pos);
-    std::string macStr = payload.substr(pos + 4, endPos - pos - 4);
-    Mac48Address mac = Mac48Address(macStr.c_str());
-    std::string txid = ExtractField(payload, "TXID");
-
-    Ipv4Address ip = AllocateIp(mac);
-    if (ip == Ipv4Address::GetAny()) return;
-
-    std::ostringstream oss;
-    oss << "TYPE:IP_OFFER;"
-        << "MAC:" << mac << ";"
-        << "IP:" << ip << ";"
-        << "MASK:" << m_poolMask << ";"
-        << "GW:" << m_poolBase;
-    if (!txid.empty()) {
-        oss << ";TXID:" << txid;
+    Mac48Address mac;
+    Ipv4Address ip;
+    std::string resp;
+    if (!PrepareSecureApOffer(payload, mac, ip, resp)) {
+        return;
     }
-    std::string resp = oss.str();
     // 加2ms调度延迟，模拟AP端处理+传播时延，避免IP_OFFER与IP_REQUEST同时间戳
     Simulator::Schedule(MilliSeconds(2), &BlindConnectApp::SendDelayedStaIpOffer, this, resp, mac);
 
@@ -588,6 +618,60 @@ void BlindConnectApp::ReceiveApSniffer(Ptr<const Packet> packet, uint16_t channe
     if (m_ipAllocatedCallback) {
         m_ipAllocatedCallback(mac, ip);
     }
+}
+
+bool BlindConnectApp::PrepareSecureApOffer(const std::string& payload,
+                                            Mac48Address& mac,
+                                            Ipv4Address& ip,
+                                            std::string& response) {
+    const std::string macText = ExtractField(payload, "MAC");
+    const std::string txid = ExtractField(payload, "TXID");
+    const std::string terminalPublicKey = ExtractField(payload, "PUBKEY");
+    if (macText.empty() || txid.empty() || terminalPublicKey.empty()) {
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [AP-Security] 缺少 MAC/TXID/PUBKEY, 拒绝 IP_REQUEST"
+                  << std::endl;
+        return false;
+    }
+    mac = Mac48Address(macText.c_str());
+
+    std::vector<unsigned char> secret;
+    if (!DerivePeerSharedSecret(terminalPublicKey, secret) ||
+        !VerifyPayloadWithSecret(payload, secret)) {
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [AP-Security] IP_REQUEST HMAC验证失败, mac="
+                  << mac << std::endl;
+        LogExperimentEvent("AUTH_REJECT", 0, "STA", 0,
+                           Ipv4Address("0.0.0.0"), macText,
+                           "AP Request Rejected", "", 0.0, -1,
+                           "Missing or invalid IP_REQUEST HMAC");
+        return false;
+    }
+    m_apPeerSecrets[mac] = secret;
+    LogExperimentEvent("AUTH_OK", 0, "STA", 0,
+                       Ipv4Address("0.0.0.0"), macText,
+                       "AP Request Authenticated", "", 0.0, -1,
+                       "Chebyshev shared secret and HMAC verified");
+
+    ip = AllocateIp(mac);
+    if (ip == Ipv4Address::GetAny()) {
+        return false;
+    }
+
+    std::ostringstream oss;
+    oss << "TYPE:IP_OFFER;"
+        << "MAC:" << mac << ";"
+        << "IP:" << ip << ";"
+        << "MASK:" << m_poolMask << ";"
+        << "GW:" << m_poolBase
+        << ";TXID:" << txid;
+    const std::string body = oss.str();
+    const std::string hmac = SignMessageWithSecret(body, secret);
+    if (hmac.empty()) {
+        return false;
+    }
+    response = body + ";HMAC:" + hmac;
+    return true;
 }
 
 void BlindConnectApp::ReceiveAdhocBeacon(Ptr<const Packet> packet, uint16_t channelFreqMhz,
@@ -907,6 +991,30 @@ void BlindConnectApp::ReceiveStaBeacon(Ptr<const Packet> packet, uint16_t channe
         packet->CopyData(buf, size);
         std::string payload((char*)buf, size);
 
+        if (payload.find("TYPE:AP_KEY_ADV") != std::string::npos &&
+            m_role == ROLE_TERMINAL) {
+            const std::string ssid = ExtractField(payload, "SSID");
+            const std::string modulus = ExtractField(payload, "MODULUS");
+            const std::string apPublicKey = ExtractField(payload, "PUBKEY");
+            if (!ssid.empty() && !modulus.empty() && !apPublicKey.empty()) {
+                auto existing = m_staCryptoContexts.find(ssid);
+                if (existing == m_staCryptoContexts.end() ||
+                    existing->second.apPublicKeyHex != apPublicKey) {
+                    if (DeriveStaCryptoContext(ssid, modulus, apPublicKey)) {
+                        std::cout << Simulator::Now().GetSeconds()
+                                  << "s: [STA-Security] 已为 AP " << ssid
+                                  << " 派生 Chebyshev 共享密钥" << std::endl;
+                        LogExperimentEvent(
+                            "KEY_DERIVED", 0, "STA", 0,
+                            Ipv4Address("0.0.0.0"), "",
+                            "AP Key Derived", ssid, snr.signal, 0,
+                            "Chebyshev context cached by SSID");
+                    }
+                }
+            }
+            return;
+        }
+
         // IP_OFFER 给 STA 设备：直接处理，不转发到 Adhoc
         if (payload.find("TYPE:IP_OFFER") != std::string::npos) {
             size_t mp = payload.find("MAC:");
@@ -922,6 +1030,26 @@ void BlindConnectApp::ReceiveStaBeacon(Ptr<const Packet> packet, uint16_t channe
                                                      "", 0.0, -1, "STA offer txid mismatch");
                         return;
                     }
+                    if (!VerifyStaOfferSecurity(payload)) {
+                        std::cout << Simulator::Now().GetSeconds()
+                                  << "s: [Terminal-STA] IP_OFFER HMAC验证失败, 忽略"
+                                  << std::endl;
+                        LogExperimentEvent(
+                            "AUTH_REJECT", m_currentDomainId, "STA",
+                            m_pendingStaTxId, Ipv4Address("0.0.0.0"), "",
+                            "AP Offer Rejected",
+                            std::string(m_currentSsid.PeekString()),
+                            m_currentSnr, m_currentHops,
+                            "Missing or invalid IP_OFFER HMAC");
+                        return;
+                    }
+                    LogExperimentEvent(
+                        "AUTH_OK", m_currentDomainId, "STA",
+                        m_pendingStaTxId, Ipv4Address("0.0.0.0"), "",
+                        "AP Offer Authenticated",
+                        std::string(m_currentSsid.PeekString()),
+                        m_currentSnr, m_currentHops,
+                        "IP_OFFER TXID and HMAC verified");
                     std::cout << Simulator::Now().GetSeconds()
                               << "s: [Terminal-STA] 收到STA IP_OFFER, ch="
                               << channelFreqMhz << "MHz, payload=" << payload << std::endl;
@@ -1773,6 +1901,20 @@ void BlindConnectApp::RequestStaIp() {
         return;
     }
 
+    const std::string ssid(m_currentSsid.PeekString());
+    auto cryptoIt = m_staCryptoContexts.find(ssid);
+    if (cryptoIt == m_staCryptoContexts.end() ||
+        cryptoIt->second.sharedSecret.empty() ||
+        cryptoIt->second.terminalPublicKeyHex.empty()) {
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [ReqStaIp] 尚未获得 AP " << ssid
+                  << " 的密钥材料，等待密钥广播..." << std::endl;
+        m_ipReqEvent = Simulator::Schedule(
+            MilliSeconds(250), &BlindConnectApp::RequestStaIp, this);
+        return;
+    }
+    ActivateStaCryptoContext(ssid);
+
     if (m_staIpSocket) { m_staIpSocket->Close(); }
     m_staIpSocket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
     m_staIpSocket->SetAllowBroadcast(true);
@@ -1788,15 +1930,18 @@ void BlindConnectApp::RequestStaIp() {
     std::ostringstream oss;
     oss << "TYPE:IP_REQUEST;"
         << "MAC:" << m_staDevice->GetAddress()
-        << ";TXID:" << m_pendingStaTxId;
-    if (m_cryptoEnabled && m_publicKeyBytes) {
-        oss << ";PUBKEY:" << GetPublicKeyHex();
+        << ";TXID:" << m_pendingStaTxId
+        << ";PUBKEY:" << cryptoIt->second.terminalPublicKeyHex;
+    const std::string body = oss.str();
+    const std::string hmac =
+        SignMessageWithSecret(body, cryptoIt->second.sharedSecret);
+    if (hmac.empty()) {
+        std::cout << Simulator::Now().GetSeconds()
+                  << "s: [ReqStaIp] HMAC生成失败, 取消未认证请求"
+                  << std::endl;
+        return;
     }
-    std::string payload = oss.str();
-    if (m_cryptoEnabled && m_sharedSecret) {
-        std::string hmacHex = SignMessage(payload);
-        payload += ";HMAC:" + hmacHex;
-    }
+    const std::string payload = body + ";HMAC:" + hmac;
 
     // device 层直发,绕过 StaWifiMac EDCA bug,接收方走 PHY MonitorSnifferRx
     Ptr<Packet> p = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
@@ -2054,6 +2199,24 @@ void BlindConnectApp::HandleStaIpRead(Ptr<Socket> socket) {
                                                      "", 0.0, -1, "STA offer txid mismatch");
             continue;
         }
+        if (!VerifyStaOfferSecurity(payload)) {
+            std::cout << Simulator::Now().GetSeconds()
+                      << "s: [HandleStaIp] IP_OFFER HMAC验证失败, 忽略"
+                      << std::endl;
+            LogExperimentEvent(
+                "AUTH_REJECT", m_currentDomainId, "STA", m_pendingStaTxId,
+                Ipv4Address("0.0.0.0"), "", "AP Offer Rejected",
+                std::string(m_currentSsid.PeekString()),
+                m_currentSnr, m_currentHops,
+                "Missing or invalid IP_OFFER HMAC");
+            continue;
+        }
+        LogExperimentEvent(
+            "AUTH_OK", m_currentDomainId, "STA", m_pendingStaTxId,
+            Ipv4Address("0.0.0.0"), "", "AP Offer Authenticated",
+            std::string(m_currentSsid.PeekString()),
+            m_currentSnr, m_currentHops,
+            "IP_OFFER TXID and HMAC verified");
 
         {
             std::ostringstream ipKey; ipKey << ip << "_d" << (int)m_currentDomainId;
@@ -2150,26 +2313,12 @@ void BlindConnectApp::HandleApServerRead(Ptr<Socket> socket) {
 
         if (payload.find("TYPE:IP_REQUEST") == std::string::npos) continue;
 
-        size_t pos = payload.find("MAC:");
-        if (pos == std::string::npos) continue;
-        size_t endPos = payload.find(";", pos);
-        std::string macStr = payload.substr(pos + 4, endPos - pos - 4);
-        Mac48Address mac = Mac48Address(macStr.c_str());
-        std::string txid = ExtractField(payload, "TXID");
-
-        Ipv4Address ip = AllocateIp(mac);
-        if (ip == Ipv4Address::GetAny()) continue;
-
-        std::ostringstream oss;
-        oss << "TYPE:IP_OFFER;"
-            << "MAC:" << mac << ";"
-            << "IP:" << ip << ";"
-            << "MASK:" << m_poolMask << ";"
-            << "GW:" << m_poolBase;
-        if (!txid.empty()) {
-            oss << ";TXID:" << txid;
+        Mac48Address mac;
+        Ipv4Address ip;
+        std::string resp;
+        if (!PrepareSecureApOffer(payload, mac, ip, resp)) {
+            continue;
         }
-        std::string resp = oss.str();
         Ptr<Packet> p = Create<Packet>((uint8_t*)resp.c_str(), resp.length());
 
         socket->SendTo(p, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), 68));
@@ -2705,6 +2854,159 @@ std::string BlindConnectApp::SignMessage(const std::string& msgBody) {
 bool BlindConnectApp::VerifyMessage(const std::string& msgBody, const std::string& hmacHex) {
     std::string expected = SignMessage(msgBody);
     return !expected.empty() && expected == hmacHex;
+}
+
+bool BlindConnectApp::DeriveStaCryptoContext(
+    const std::string& ssid,
+    const std::string& modulusHex,
+    const std::string& apPublicKeyHex) {
+    try {
+        size_t modulusLength = 0;
+        unsigned char* modulusBytes =
+            ExtendedChebyshevKeyExchange::hex_to_bytes(
+                modulusHex, &modulusLength);
+        if (!modulusBytes || modulusLength == 0) {
+            return false;
+        }
+        mpz_class modulus;
+        mpz_import(modulus.get_mpz_t(), modulusLength, 1, 1, 0, 0,
+                   modulusBytes);
+        ExtendedChebyshevKeyExchange::free_bytes(modulusBytes);
+
+        ExtendedChebyshevKeyExchange exchange(modulus);
+        size_t privateLength = 0;
+        unsigned char* privateKey =
+            exchange.generate_private_key_bytes(&privateLength);
+
+        mpz_class basePoint = 2;
+        size_t baseLength =
+            (mpz_sizeinbase(basePoint.get_mpz_t(), 2) + 7) / 8;
+        unsigned char* baseBytes = new unsigned char[baseLength];
+        size_t exported = 0;
+        mpz_export(baseBytes, &exported, 1, 1, 0, 0,
+                   basePoint.get_mpz_t());
+        size_t publicLength = 0;
+        unsigned char* publicKey = exchange.compute_public_key_bytes(
+            privateKey, privateLength, baseBytes, exported, &publicLength);
+        delete[] baseBytes;
+
+        size_t peerLength = 0;
+        unsigned char* peerPublicKey =
+            ExtendedChebyshevKeyExchange::hex_to_bytes(
+                apPublicKeyHex, &peerLength);
+        if (!peerPublicKey || peerLength == 0) {
+            ExtendedChebyshevKeyExchange::free_bytes(privateKey);
+            ExtendedChebyshevKeyExchange::free_bytes(publicKey);
+            return false;
+        }
+        size_t secretLength = 0;
+        unsigned char* sharedSecret =
+            exchange.compute_shared_secret_bytes(
+                privateKey, privateLength,
+                peerPublicKey, peerLength, &secretLength);
+
+        StaCryptoContext context;
+        context.apPublicKeyHex = apPublicKeyHex;
+        context.terminalPublicKeyHex =
+            ExtendedChebyshevKeyExchange::bytes_to_hex(
+                publicKey, publicLength);
+        if (sharedSecret && secretLength >= 16) {
+            context.sharedSecret.assign(sharedSecret, sharedSecret + 16);
+        }
+
+        ExtendedChebyshevKeyExchange::free_bytes(privateKey);
+        ExtendedChebyshevKeyExchange::free_bytes(publicKey);
+        ExtendedChebyshevKeyExchange::free_bytes(peerPublicKey);
+        if (sharedSecret) {
+            ExtendedChebyshevKeyExchange::free_bytes(sharedSecret);
+        }
+        if (context.sharedSecret.empty()) {
+            return false;
+        }
+        m_staCryptoContexts[ssid] = context;
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "DeriveStaCryptoContext failed: "
+                  << error.what() << std::endl;
+        return false;
+    }
+}
+
+bool BlindConnectApp::ActivateStaCryptoContext(const std::string& ssid) {
+    auto context = m_staCryptoContexts.find(ssid);
+    return context != m_staCryptoContexts.end() &&
+           !context->second.sharedSecret.empty() &&
+           !context->second.terminalPublicKeyHex.empty();
+}
+
+bool BlindConnectApp::DerivePeerSharedSecret(
+    const std::string& peerPublicKeyHex,
+    std::vector<unsigned char>& secret) const {
+    secret.clear();
+    if (!m_cryptoEnabled || !m_keyExchange || !m_privateKeyBytes ||
+        peerPublicKeyHex.empty()) {
+        return false;
+    }
+    size_t peerLength = 0;
+    unsigned char* peerPublicKey =
+        ExtendedChebyshevKeyExchange::hex_to_bytes(
+            peerPublicKeyHex, &peerLength);
+    if (!peerPublicKey || peerLength == 0) {
+        return false;
+    }
+    size_t secretLength = 0;
+    unsigned char* sharedSecret =
+        m_keyExchange->compute_shared_secret_bytes(
+            m_privateKeyBytes, m_privateKeyLen,
+            peerPublicKey, peerLength, &secretLength);
+    ExtendedChebyshevKeyExchange::free_bytes(peerPublicKey);
+    if (!sharedSecret || secretLength < 16) {
+        if (sharedSecret) {
+            ExtendedChebyshevKeyExchange::free_bytes(sharedSecret);
+        }
+        return false;
+    }
+    secret.assign(sharedSecret, sharedSecret + 16);
+    ExtendedChebyshevKeyExchange::free_bytes(sharedSecret);
+    return true;
+}
+
+std::string BlindConnectApp::SignMessageWithSecret(
+    const std::string& msgBody,
+    const std::vector<unsigned char>& secret) const {
+    if (secret.empty()) {
+        return "";
+    }
+    unsigned char* hmac = CryptoUtils::hmacSha256First64Bits(
+        msgBody.data(), msgBody.size(), secret.data(), secret.size());
+    if (!hmac) {
+        return "";
+    }
+    const std::string result = CryptoUtils::bytesToHex(hmac, 8);
+    CryptoUtils::freeBytes(hmac);
+    return result;
+}
+
+bool BlindConnectApp::VerifyPayloadWithSecret(
+    const std::string& payload,
+    const std::vector<unsigned char>& secret) const {
+    const size_t appStart = payload.find("TYPE:");
+    if (appStart == std::string::npos) {
+        return false;
+    }
+    const std::string appPayload = payload.substr(appStart);
+    const size_t hmacPosition = appPayload.find(";HMAC:");
+    if (hmacPosition == std::string::npos) {
+        return false;
+    }
+    const std::string suppliedHmac = ExtractField(appPayload, "HMAC");
+    if (suppliedHmac.empty()) {
+        return false;
+    }
+    const std::string body = appPayload.substr(0, hmacPosition);
+    const std::string expectedHmac =
+        SignMessageWithSecret(body, secret);
+    return !expectedHmac.empty() && expectedHmac == suppliedHmac;
 }
 
 std::string BlindConnectApp::GetPublicKeyHex() const {

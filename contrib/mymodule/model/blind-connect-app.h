@@ -162,6 +162,7 @@ private:
   ScannedNodeInfo FromAccessCandidate(const IntelligentAccessAlgorithm::Candidate& candidate) const;
 
   void SendPseudoBeacon();
+  void SendApKeyAdvertisement();
   void PurgeNeighborTable();
   void SetDefaultRouteVia(Ptr<Ipv4> ipv4, uint32_t iface, Ipv4Address gw);
 
@@ -199,6 +200,9 @@ private:
   uint32_t NextTxId();
   bool IsExpectedStaOffer(const std::string& payload) const;
   bool IsExpectedAdhocOffer(const std::string& payload) const;
+  bool PrepareSecureApOffer(const std::string& payload, Mac48Address& mac,
+                            Ipv4Address& ip, std::string& response);
+  bool VerifyStaOfferSecurity(const std::string& payload) const;
 
   // --- 加密操作 ---
   void InitCrypto();                                           // 初始化加密子系统
@@ -206,6 +210,18 @@ private:
   bool ComputeSharedSecretFromGateway(const std::string& modulusHex, const std::string& pubKeyHex);  // 从网关公钥计算共享密钥
   std::string SignMessage(const std::string& msgBody);         // 对消息体计算 HMAC 签名
   bool VerifyMessage(const std::string& msgBody, const std::string& hmacHex);  // 验证 HMAC 签名
+  bool DeriveStaCryptoContext(const std::string& ssid,
+                              const std::string& modulusHex,
+                              const std::string& apPublicKeyHex);
+  bool ActivateStaCryptoContext(const std::string& ssid);
+  bool DerivePeerSharedSecret(const std::string& peerPublicKeyHex,
+                              std::vector<unsigned char>& secret) const;
+  std::string SignMessageWithSecret(
+      const std::string& msgBody,
+      const std::vector<unsigned char>& secret) const;
+  bool VerifyPayloadWithSecret(
+      const std::string& payload,
+      const std::vector<unsigned char>& secret) const;
   std::string GetPublicKeyHex() const;                         // 获取本节点公钥的 hex 串
   std::string GetModulusHex() const;                           // 获取模数的 hex 串
   std::string ExtractField(const std::string& payload, const std::string& key) const;  // 从 payload 提取字段值
@@ -231,6 +247,7 @@ private:
 
   Ptr<Socket> m_broadcastSocket;
   EventId m_beaconEvent;
+  EventId m_apKeyAdvEvent;       // AP Chebyshev 公钥材料广播
   EventId m_hopEvent;
   EventId m_evalEvent;
   EventId m_rescanEvent;          // AP域周期性信道重扫
@@ -311,8 +328,15 @@ private:
 
   // --- AP Server ---
   Ptr<Socket> m_apServerSocket;
+  std::map<Mac48Address, std::vector<unsigned char>> m_apPeerSecrets;
 
   // --- 加密相关 ---
+  struct StaCryptoContext {
+    std::string apPublicKeyHex;
+    std::string terminalPublicKeyHex;
+    std::vector<unsigned char> sharedSecret;
+  };
+  std::map<std::string, StaCryptoContext> m_staCryptoContexts;
   bool m_cryptoEnabled;                                        // 是否启用加密
   ExtendedChebyshevKeyExchange* m_keyExchange;                 // Chebyshev 密钥交换实例
   unsigned char* m_privateKeyBytes;                            // 本节点私钥
